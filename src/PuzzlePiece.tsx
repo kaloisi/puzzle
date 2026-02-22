@@ -183,19 +183,19 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
                 strokeDasharray="4 3"
                 opacity={0.7}
               />
-              {/* Stick from center to the circle */}
+              {/* Stick from circle edge upward */}
               <line
                 x1={centerOffsetX}
-                y1={centerOffsetY}
+                y1={centerOffsetY - handleRadius}
                 x2={centerOffsetX}
-                y2={centerOffsetY - handleRadius}
+                y2={centerOffsetY - handleRadius - 30}
                 stroke="#4a90d9"
                 strokeWidth={2}
               />
-              {/* Button sitting on the circle */}
+              {/* Button at end of stick */}
               <circle
                 cx={centerOffsetX}
-                cy={centerOffsetY - handleRadius}
+                cy={centerOffsetY - handleRadius - 30}
                 r={8}
                 fill="#4a90d9"
                 stroke="white"
