@@ -23,7 +23,6 @@ const PAD = 4;
 function translateScalePath(path: string, oX: number, oY: number, scale: number): string {
   // Replace all numeric tokens after command letters with transformed values.
   // SVG path coords come in x,y pairs separated by spaces/commas.
-  let cmdIndex = 0;
   const tokens = path.trim().split(/([MLCZmlcz]|\s*,\s*|\s+)/).filter(Boolean);
   const out: string[] = [];
   let isX = true; // alternates between x and y for coord pairs
@@ -163,18 +162,18 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
             />
           ))}
           {isSelected && (
-            <g>
+            <g transform={`rotate(${-rotation} ${centerOffsetX} ${centerOffsetY})`}>
               <line
                 x1={centerOffsetX}
-                y1={0}
+                y1={centerOffsetY}
                 x2={centerOffsetX}
-                y2={-HANDLE_LENGTH}
+                y2={centerOffsetY - HANDLE_LENGTH}
                 stroke="#4a90d9"
                 strokeWidth={2}
               />
               <circle
                 cx={centerOffsetX}
-                cy={-HANDLE_LENGTH}
+                cy={centerOffsetY - HANDLE_LENGTH}
                 r={8}
                 fill="#4a90d9"
                 stroke="white"

@@ -158,53 +158,10 @@ function hEdgeSegment(
 
   const mx = (xa + xb) / 2;
   const e = cellW * 0.2;         // shoulder width from edge of tab
-  const sign = reversed ? -dir : dir; // actual y direction: -1=up, +1=down
-  const h = tabSize * sign;      // signed tab height (negative = up = actual protrusion for top)
   const r = cellW * 0.15;       // half-width of the rounded tip
 
-  // Tab goes in -y direction for dir>0 on top edge (sign = dir = +1 but we negate for "up")
-  // Wait, let me re-think:
-  // topDir +1 means tab protrudes upward (negative y), i.e. h should be negative.
-  // For top edge (not reversed): sign = dir, so h = tabSize * dir.
-  //   dir=+1 → h=+tabSize → tab goes DOWN (wrong!)
-  // Let me fix: for top edge, +1 should mean tab goes up (h is negative).
-  // Actually let's redefine: dir > 0 for tabs always means the bump goes "away from center"
-  // For top edge: away from center = up = negative y
-  // For bottom edge: away from center = down = positive y (but we're going reversed)
-  // The caller passes dir with this meaning. Let me re-examine the caller logic:
-  //   topDir = -hEdge[r-1][c]  where hEdge is "+1 = tab protrudes downward"
-  //   So if hEdge=+1, the tab on the top edge protrudes downward ON THE PIECE BELOW.
-  //   For the piece above, the same edge is a blank going downward = looks like indentation from above.
-  //   topDir = -hEdge[r-1][c]: if hEdge=+1, topDir=-1; the top piece has a blank (indent) going down.
-  //   Visually: top piece has indent going down (-1), bottom piece has tab going up (+1).
-  //
-  // So topDir +1 = tab protrudes UPWARD (into negative y for this edge going left-to-right).
-  // bottomDir +1: we're going right-to-left (reversed). The bottom edge tab goes downward.
-  //   bottomDir = -hEdge[r][c], so if hEdge=+1 (tab down from row r's bottom), bottomDir=-1.
-  //   bottomDir=-1 on reversed edge. Hmm, signs are getting complex.
-  //
-  // Simplification:
-  //   For a horizontal edge, "dir" = +1 always means tab goes in -y (up) direction regardless.
-  //   The geometry (reversed or not) only affects the draw order, not the bump direction.
-  //   So: h = -tabSize * dir (negative y = up for positive dir).
-  //
-  // Actually let me just use a clear convention:
-  //   "dir > 0" = tab protrudes in the POSITIVE normal direction of the edge.
-  //   For top/bottom horizontal edges, positive normal = UP (-y direction).
-  //   Wait that makes it confusing for bottom edge.
-  //
-  // Let me use the simplest approach: just always use h based on the raw sign of dir,
-  // and handle the geometry per-edge. Since we're drawing clockwise:
-  //   - Top edge (L→R): tab direction > 0 means up (-y): h = -tabSize
-  //   - Bottom edge (R→L, reversed): tab direction > 0 means down (+y): h = +tabSize
-  // The "reversed" flag already handles that: sign = reversed ? -dir : dir for y component.
-  // But for top edge: reversed=false, dir=+1, sign=+1, h=+tabSize → tab goes DOWN. Wrong.
-  //
-  // Fix: for top edge, tab going "out" means -y. For bottom edge going reversed, "out" = +y.
-  // So for horizontal: h = -tabSize for "out" on top, +tabSize for "out" on bottom.
-  // When reversed=true (bottom edge, R→L), positive dir = down = positive y. h = +tabSize * dir.
-  // When reversed=false (top edge, L→R), positive dir = up = negative y. h = -tabSize * dir.
-  // Combined: h = (reversed ? 1 : -1) * tabSize * dir.
+  // For top edge (not reversed): dir=+1 means tab protrudes up (-y). hy = -tabSize * dir.
+  // For bottom edge (reversed): dir=+1 means tab protrudes down (+y). hy = +tabSize * dir.
   const hy = (reversed ? 1 : -1) * tabSize * dir;
 
   if (xa < xb) {
