@@ -156,7 +156,16 @@ export const PuzzleBoard: React.FC = () => {
   );
 
   const entities = store.getEntities();
-  const sortedEntities = [...entities].sort((a, b) => a.zIndex - b.zIndex);
+  const sortedEntities = [...entities].sort((a, b) => {
+    // Selected entity always on top
+    if (a.id === store.selectedId) return 1;
+    if (b.id === store.selectedId) return -1;
+    // Larger groups behind, single pieces on top
+    const aCount = a.kind === "group" ? a.pieceIds.length : 1;
+    const bCount = b.kind === "group" ? b.pieceIds.length : 1;
+    if (aCount !== bCount) return bCount - aCount;
+    return a.zIndex - b.zIndex;
+  });
 
   if (error) {
     return (

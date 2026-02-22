@@ -162,18 +162,18 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
             />
           ))}
           {isSelected && (
-            <g>
+            <g transform={`rotate(${-rotation} ${centerOffsetX} ${centerOffsetY})`}>
               <line
                 x1={centerOffsetX}
-                y1={0}
+                y1={centerOffsetY}
                 x2={centerOffsetX}
-                y2={-HANDLE_LENGTH}
+                y2={centerOffsetY - HANDLE_LENGTH}
                 stroke="#4a90d9"
                 strokeWidth={2}
               />
               <circle
                 cx={centerOffsetX}
-                cy={-HANDLE_LENGTH}
+                cy={centerOffsetY - HANDLE_LENGTH}
                 r={8}
                 fill="#4a90d9"
                 stroke="white"
