@@ -2,13 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { PuzzlePieceView } from "./PuzzlePiece";
 import { usePuzzleStore } from "./usePuzzleStore";
 
-const NGA_PATH =
-  "/iiif/0b9cefb5-1ee4-401a-8154-8d4039191a28/full/full/0/default.jpg?attachment_filename=the_japanese_footbridge_1992.9.1.jpg";
-
-// In dev, use Vite proxy to avoid CORS; in prod, use the Workers deployment
-const IMAGE_URL = import.meta.env.DEV
-  ? `/api/nga${NGA_PATH}`
-  : `https://puzzle.white-hat-de0d.workers.dev${NGA_PATH}`;
+const today = new Date().toISOString().slice(0, 10);
+const IMAGE_URL = `https://puzzle.white-hat-de0d.workers.dev/${today}`;
 
 const PIECE_COUNT = 250;
 
