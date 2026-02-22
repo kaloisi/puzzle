@@ -13,7 +13,6 @@ interface Props {
   onRotateStart: (id: string, e: React.PointerEvent) => void;
 }
 
-const HANDLE_LENGTH = 30;
 const PAD = 4;
 
 /**
@@ -81,6 +80,15 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
       const coX = (imgCentroid[0] - oX) * scale;
       const coY = (imgCentroid[1] - oY) * scale;
 
+      // Radius of the selection circle: distance from centroid to farthest corner + padding
+      const handleRadius =
+        Math.max(
+          Math.hypot(coX, coY),
+          Math.hypot(svgW - coX, coY),
+          Math.hypot(coX, svgH - coY),
+          Math.hypot(svgW - coX, svgH - coY)
+        ) + 6;
+
       return {
         svgWidth: svgW,
         svgHeight: svgH,
@@ -88,10 +96,11 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
         imgTransform: imgT,
         centerOffsetX: coX,
         centerOffsetY: coY,
+        handleRadius,
       };
     }, [polygons, paths, scale, image.naturalWidth, image.naturalHeight, imgCentroid]);
 
-    const { svgWidth, svgHeight, clipPaths, imgTransform, centerOffsetX, centerOffsetY } = computed;
+    const { svgWidth, svgHeight, clipPaths, imgTransform, centerOffsetX, centerOffsetY, handleRadius } = computed;
     const clipId = `clip-${id}`;
 
     const handlePointerDown = useCallback(
@@ -162,18 +171,31 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
             />
           ))}
           {isSelected && (
-            <g transform={`rotate(${-rotation} ${centerOffsetX} ${centerOffsetY})`}>
+            <g>
+              {/* Circle around the piece */}
+              <circle
+                cx={centerOffsetX}
+                cy={centerOffsetY}
+                r={handleRadius}
+                fill="none"
+                stroke="#4a90d9"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                opacity={0.7}
+              />
+              {/* Stick from circle edge upward */}
               <line
                 x1={centerOffsetX}
-                y1={centerOffsetY}
+                y1={centerOffsetY - handleRadius}
                 x2={centerOffsetX}
-                y2={centerOffsetY - HANDLE_LENGTH}
+                y2={centerOffsetY - handleRadius - 30}
                 stroke="#4a90d9"
                 strokeWidth={2}
               />
+              {/* Button at end of stick */}
               <circle
                 cx={centerOffsetX}
-                cy={centerOffsetY - HANDLE_LENGTH}
+                cy={centerOffsetY - handleRadius - 30}
                 r={8}
                 fill="#4a90d9"
                 stroke="white"
