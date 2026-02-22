@@ -2,16 +2,18 @@ export type Point = [number, number];
 
 export interface PuzzlePiece {
   id: string;
-  /** Polygon vertices in image-space coordinates */
+  /** Expanded bounding rectangle in image-space (includes tab overhang) */
   polygon: Point[];
-  /** Centroid of the polygon in image-space */
+  /** SVG path string with bezier tab/blank edges, in image-space coords */
+  path: string;
+  /** Centroid of the piece cell in image-space */
   centroid: Point;
   /** Current position of the centroid on the board */
   x: number;
   y: number;
   /** Current rotation in degrees */
   rotation: number;
-  /** IDs of original Voronoi neighbors */
+  /** IDs of grid neighbors */
   neighborIds: string[];
   /** z-index for stacking order */
   zIndex: number;
@@ -20,8 +22,10 @@ export interface PuzzlePiece {
 export interface MergedGroup {
   id: string;
   pieceIds: string[];
-  /** All polygons belonging to this group (image-space coords) */
+  /** Expanded bounding rectangles for each member piece (image-space coords) */
   polygons: Point[][];
+  /** SVG path strings for each member piece */
+  paths: string[];
   /** Centroid of the whole group in image-space */
   centroid: Point;
   x: number;
