@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { PuzzlePieceView } from "./PuzzlePiece";
 import { usePuzzleStore } from "./usePuzzleStore";
 
-const IMAGE_URL = `https://puzzle.white-hat-de0d.workers.dev/2026-02-22`;
+const today = new Date().toISOString().slice(0, 10);
+const IMAGE_URL = `https://puzzle.white-hat-de0d.workers.dev/${today}`;
 
 const PIECE_COUNT = 250;
 
