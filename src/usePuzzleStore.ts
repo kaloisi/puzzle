@@ -285,6 +285,7 @@ function performSnap(
     // MERGE
     const mergedPieceIds = [...active.pieceIds, ...neighbor.pieceIds];
     const mergedPolygons = mergedPieceIds.map((pid) => pieceMap.get(pid)!.polygon);
+    const mergedPaths = mergedPieceIds.map((pid) => pieceMap.get(pid)!.path);
     const mergedCentroid = groupCentroid(mergedPolygons);
 
     // Position the merged group so it aligns with active's coordinate system
@@ -298,6 +299,7 @@ function performSnap(
       id: `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       pieceIds: mergedPieceIds,
       polygons: mergedPolygons,
+      paths: mergedPaths,
       centroid: mergedCentroid,
       x: mergedX,
       y: mergedY,

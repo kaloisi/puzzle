@@ -1,8 +1,9 @@
-import { Delaunay } from "d3-delaunay";
 import type { Point, PuzzlePiece } from "./types";
 
 /**
- * Generate Lloyd-relaxed Voronoi puzzle pieces for the given image dimensions.
+ * Generate a grid-based jigsaw puzzle with standard tab/blank edges.
+ * Each shared edge is randomly assigned a tab (outward bump) or blank (inward dent),
+ * and adjacent pieces always have complementary shapes.
  */
 export function generatePuzzlePieces(
   imgWidth: number,
@@ -11,104 +12,259 @@ export function generatePuzzlePieces(
   boardWidth: number,
   boardHeight: number
 ): PuzzlePiece[] {
-  // 1. Seed random points
-  let points: Point[] = [];
-  for (let i = 0; i < count; i++) {
-    points.push([Math.random() * imgWidth, Math.random() * imgHeight]);
-  }
+  // 1. Compute grid dimensions
+  const cols = Math.max(2, Math.round(Math.sqrt(count * imgWidth / imgHeight)));
+  const rows = Math.max(2, Math.round(count / cols));
 
-  // 2. Lloyd relaxation (3 iterations) for more uniform cells
-  for (let iter = 0; iter < 3; iter++) {
-    const delaunay = Delaunay.from(points);
-    const voronoi = delaunay.voronoi([0, 0, imgWidth, imgHeight]);
-    const newPoints: Point[] = [];
-    for (let i = 0; i < points.length; i++) {
-      const cell = voronoi.cellPolygon(i);
-      if (cell) {
-        const c = centroid(cell as Point[]);
-        newPoints.push(c);
-      } else {
-        newPoints.push(points[i]);
-      }
+  const cellW = imgWidth / cols;
+  const cellH = imgHeight / rows;
+  const tabSize = Math.min(cellW, cellH) * 0.3;
+
+  // 2. Assign edge directions (shared between adjacent pieces, complementary)
+  //    hEdge[r][c]: +1 = tab protrudes downward on the edge between row r and row r+1
+  //    vEdge[r][c]: +1 = tab protrudes rightward on the edge between col c and col c+1
+  const hEdge: number[][] = [];
+  for (let r = 0; r < rows - 1; r++) {
+    hEdge[r] = [];
+    for (let c = 0; c < cols; c++) {
+      hEdge[r][c] = Math.random() > 0.5 ? 1 : -1;
     }
-    points = newPoints;
   }
-
-  // 3. Build final Voronoi
-  const delaunay = Delaunay.from(points);
-  const voronoi = delaunay.voronoi([0, 0, imgWidth, imgHeight]);
-
-  // 4. Build neighbor map from Delaunay triangulation
-  const neighbors: Map<number, Set<number>> = new Map();
-  for (let i = 0; i < points.length; i++) {
-    neighbors.set(i, new Set());
-  }
-  for (let i = 0; i < points.length; i++) {
-    for (const j of delaunay.neighbors(i)) {
-      neighbors.get(i)!.add(j);
-      neighbors.get(j)!.add(i);
+  const vEdge: number[][] = [];
+  for (let r = 0; r < rows; r++) {
+    vEdge[r] = [];
+    for (let c = 0; c < cols - 1; c++) {
+      vEdge[r][c] = Math.random() > 0.5 ? 1 : -1;
     }
   }
 
-  // 5. Create puzzle pieces
+  // 3. Create pieces
   const pieces: PuzzlePiece[] = [];
   const padding = 60;
 
-  for (let i = 0; i < points.length; i++) {
-    const cell = voronoi.cellPolygon(i);
-    if (!cell) continue;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x0 = c * cellW;
+      const y0 = r * cellH;
+      const x1 = x0 + cellW;
+      const y1 = y0 + cellH;
+      const id = `piece-${r * cols + c}`;
 
-    const polygon = cell.slice(0, -1) as Point[]; // remove closing duplicate
-    const c = centroid(polygon);
-    const id = `piece-${i}`;
+      // Determine tab/blank direction for each of the 4 edges
+      // +1 = tab, -1 = blank, 0 = boundary (straight)
+      const topDir = r > 0 ? -hEdge[r - 1][c] : 0;    // negate: neighbor above owns the edge direction
+      const rightDir = c < cols - 1 ? vEdge[r][c] : 0;
+      const bottomDir = r < rows - 1 ? -hEdge[r][c] : 0; // negate: going right-to-left reversal
+      const leftDir = c > 0 ? -vEdge[r][c - 1] : 0;   // negate: going bottom-to-top reversal
 
-    // Random position on the board
-    const x = padding + Math.random() * (boardWidth - 2 * padding);
-    const y = padding + Math.random() * (boardHeight - 2 * padding);
+      const path = buildPiecePath(x0, y0, x1, y1, cellW, cellH, tabSize,
+        topDir, rightDir, bottomDir, leftDir);
 
-    // Random rotation (multiples of 15 degrees for easier snapping)
-    const rotation = Math.floor(Math.random() * 24) * 15;
+      // Expanded bounding polygon (includes tab overhang on all sides)
+      const polygon: Point[] = [
+        [x0 - tabSize, y0 - tabSize],
+        [x1 + tabSize, y0 - tabSize],
+        [x1 + tabSize, y1 + tabSize],
+        [x0 - tabSize, y1 + tabSize],
+      ];
 
-    const neighborIds = Array.from(neighbors.get(i) || []).map(
-      (n) => `piece-${n}`
-    );
+      const centroid: Point = [(x0 + x1) / 2, (y0 + y1) / 2];
 
-    pieces.push({
-      id,
-      polygon,
-      centroid: c,
-      x,
-      y,
-      rotation,
-      neighborIds,
-      zIndex: i,
-    });
+      // Random position on the board
+      const bx = padding + Math.random() * (boardWidth - 2 * padding);
+      const by = padding + Math.random() * (boardHeight - 2 * padding);
+
+      // Random rotation (multiples of 15 degrees for easier snapping)
+      const rotation = Math.floor(Math.random() * 24) * 15;
+
+      // Grid neighbors (up, down, left, right)
+      const neighborIds: string[] = [];
+      if (r > 0) neighborIds.push(`piece-${(r - 1) * cols + c}`);
+      if (r < rows - 1) neighborIds.push(`piece-${(r + 1) * cols + c}`);
+      if (c > 0) neighborIds.push(`piece-${r * cols + (c - 1)}`);
+      if (c < cols - 1) neighborIds.push(`piece-${r * cols + (c + 1)}`);
+
+      pieces.push({
+        id,
+        polygon,
+        path,
+        centroid,
+        x: bx,
+        y: by,
+        rotation,
+        neighborIds,
+        zIndex: r * cols + c,
+      });
+    }
   }
 
   return pieces;
 }
 
-function centroid(polygon: Point[]): Point {
-  let cx = 0;
-  let cy = 0;
-  let area = 0;
-  const n = polygon.length;
-  for (let i = 0; i < n; i++) {
-    const [x0, y0] = polygon[i];
-    const [x1, y1] = polygon[(i + 1) % n];
-    const cross = x0 * y1 - x1 * y0;
-    area += cross;
-    cx += (x0 + x1) * cross;
-    cy += (y0 + y1) * cross;
+/**
+ * Build an SVG path for a jigsaw piece cell.
+ * All coordinates are in image-space.
+ *
+ * @param x0,y0  top-left corner of cell
+ * @param x1,y1  bottom-right corner of cell
+ * @param cellW  cell width
+ * @param cellH  cell height
+ * @param tabSize  max tab protrusion distance
+ * @param topDir    +1=tab up, -1=blank up, 0=flat
+ * @param rightDir  +1=tab right, -1=blank right, 0=flat
+ * @param bottomDir +1=tab down, -1=blank down, 0=flat
+ * @param leftDir   +1=tab left, -1=blank left, 0=flat
+ */
+function buildPiecePath(
+  x0: number, y0: number,
+  x1: number, y1: number,
+  cellW: number, cellH: number,
+  tabSize: number,
+  topDir: number, rightDir: number, bottomDir: number, leftDir: number
+): string {
+  const parts: string[] = [];
+
+  // Start at top-left corner
+  parts.push(`M ${f(x0)} ${f(y0)}`);
+
+  // Top edge: left → right
+  parts.push(hEdgeSegment(x0, x1, y0, topDir, cellW, tabSize, false));
+
+  // Right edge: top → bottom
+  parts.push(vEdgeSegment(y0, y1, x1, rightDir, cellH, tabSize, false));
+
+  // Bottom edge: right → left (reversed)
+  parts.push(hEdgeSegment(x1, x0, y1, bottomDir, cellW, tabSize, true));
+
+  // Left edge: bottom → top (reversed)
+  parts.push(vEdgeSegment(y1, y0, x0, leftDir, cellH, tabSize, true));
+
+  parts.push("Z");
+  return parts.join(" ");
+}
+
+/**
+ * Horizontal edge segment from xa to xb at fixed y.
+ * dir > 0: tab protrudes upward (negative y), dir < 0: blank (indent downward), 0: flat.
+ * reversed=true means we're going right-to-left (bottom edge).
+ * For the bottom edge going right-to-left, a positive dir means the tab goes down (positive y).
+ */
+function hEdgeSegment(
+  xa: number, xb: number, y: number,
+  dir: number, cellW: number, tabSize: number,
+  reversed: boolean
+): string {
+  if (dir === 0) return `L ${f(xb)} ${f(y)}`;
+
+  const mx = (xa + xb) / 2;
+  const e = cellW * 0.2;         // shoulder width from edge of tab
+  const sign = reversed ? -dir : dir; // actual y direction: -1=up, +1=down
+  const h = tabSize * sign;      // signed tab height (negative = up = actual protrusion for top)
+  const r = cellW * 0.15;       // half-width of the rounded tip
+
+  // Tab goes in -y direction for dir>0 on top edge (sign = dir = +1 but we negate for "up")
+  // Wait, let me re-think:
+  // topDir +1 means tab protrudes upward (negative y), i.e. h should be negative.
+  // For top edge (not reversed): sign = dir, so h = tabSize * dir.
+  //   dir=+1 → h=+tabSize → tab goes DOWN (wrong!)
+  // Let me fix: for top edge, +1 should mean tab goes up (h is negative).
+  // Actually let's redefine: dir > 0 for tabs always means the bump goes "away from center"
+  // For top edge: away from center = up = negative y
+  // For bottom edge: away from center = down = positive y (but we're going reversed)
+  // The caller passes dir with this meaning. Let me re-examine the caller logic:
+  //   topDir = -hEdge[r-1][c]  where hEdge is "+1 = tab protrudes downward"
+  //   So if hEdge=+1, the tab on the top edge protrudes downward ON THE PIECE BELOW.
+  //   For the piece above, the same edge is a blank going downward = looks like indentation from above.
+  //   topDir = -hEdge[r-1][c]: if hEdge=+1, topDir=-1; the top piece has a blank (indent) going down.
+  //   Visually: top piece has indent going down (-1), bottom piece has tab going up (+1).
+  //
+  // So topDir +1 = tab protrudes UPWARD (into negative y for this edge going left-to-right).
+  // bottomDir +1: we're going right-to-left (reversed). The bottom edge tab goes downward.
+  //   bottomDir = -hEdge[r][c], so if hEdge=+1 (tab down from row r's bottom), bottomDir=-1.
+  //   bottomDir=-1 on reversed edge. Hmm, signs are getting complex.
+  //
+  // Simplification:
+  //   For a horizontal edge, "dir" = +1 always means tab goes in -y (up) direction regardless.
+  //   The geometry (reversed or not) only affects the draw order, not the bump direction.
+  //   So: h = -tabSize * dir (negative y = up for positive dir).
+  //
+  // Actually let me just use a clear convention:
+  //   "dir > 0" = tab protrudes in the POSITIVE normal direction of the edge.
+  //   For top/bottom horizontal edges, positive normal = UP (-y direction).
+  //   Wait that makes it confusing for bottom edge.
+  //
+  // Let me use the simplest approach: just always use h based on the raw sign of dir,
+  // and handle the geometry per-edge. Since we're drawing clockwise:
+  //   - Top edge (L→R): tab direction > 0 means up (-y): h = -tabSize
+  //   - Bottom edge (R→L, reversed): tab direction > 0 means down (+y): h = +tabSize
+  // The "reversed" flag already handles that: sign = reversed ? -dir : dir for y component.
+  // But for top edge: reversed=false, dir=+1, sign=+1, h=+tabSize → tab goes DOWN. Wrong.
+  //
+  // Fix: for top edge, tab going "out" means -y. For bottom edge going reversed, "out" = +y.
+  // So for horizontal: h = -tabSize for "out" on top, +tabSize for "out" on bottom.
+  // When reversed=true (bottom edge, R→L), positive dir = down = positive y. h = +tabSize * dir.
+  // When reversed=false (top edge, L→R), positive dir = up = negative y. h = -tabSize * dir.
+  // Combined: h = (reversed ? 1 : -1) * tabSize * dir.
+  const hy = (reversed ? 1 : -1) * tabSize * dir;
+
+  if (xa < xb) {
+    // left to right
+    return [
+      `L ${f(xa + e)} ${f(y)}`,
+      `C ${f(xa + e)} ${f(y + hy * 0.5)}, ${f(mx - r)} ${f(y + hy)}, ${f(mx)} ${f(y + hy)}`,
+      `C ${f(mx + r)} ${f(y + hy)}, ${f(xb - e)} ${f(y + hy * 0.5)}, ${f(xb - e)} ${f(y)}`,
+      `L ${f(xb)} ${f(y)}`,
+    ].join(" ");
+  } else {
+    // right to left (bottom edge reversed)
+    return [
+      `L ${f(xa - e)} ${f(y)}`,
+      `C ${f(xa - e)} ${f(y + hy * 0.5)}, ${f(mx + r)} ${f(y + hy)}, ${f(mx)} ${f(y + hy)}`,
+      `C ${f(mx - r)} ${f(y + hy)}, ${f(xb + e)} ${f(y + hy * 0.5)}, ${f(xb + e)} ${f(y)}`,
+      `L ${f(xb)} ${f(y)}`,
+    ].join(" ");
   }
-  area /= 2;
-  if (Math.abs(area) < 1e-10) {
-    // fallback: simple average
-    const avgX = polygon.reduce((s, p) => s + p[0], 0) / n;
-    const avgY = polygon.reduce((s, p) => s + p[1], 0) / n;
-    return [avgX, avgY];
+}
+
+/**
+ * Vertical edge segment from ya to yb at fixed x.
+ * dir > 0: tab protrudes rightward (+x), dir < 0: blank, 0: flat.
+ * reversed=true means going bottom-to-top (left edge).
+ */
+function vEdgeSegment(
+  ya: number, yb: number, x: number,
+  dir: number, cellH: number, tabSize: number,
+  reversed: boolean
+): string {
+  if (dir === 0) return `L ${f(x)} ${f(yb)}`;
+
+  const my = (ya + yb) / 2;
+  const e = cellH * 0.2;
+  // For right edge (not reversed): dir=+1 = tab goes right (+x). hx = +tabSize * dir.
+  // For left edge (reversed, bottom→top): dir=+1 = tab goes left (-x). hx = -tabSize * dir.
+  const hx = (reversed ? -1 : 1) * tabSize * dir;
+  const r = cellH * 0.15;
+
+  if (ya < yb) {
+    // top to bottom
+    return [
+      `L ${f(x)} ${f(ya + e)}`,
+      `C ${f(x + hx * 0.5)} ${f(ya + e)}, ${f(x + hx)} ${f(my - r)}, ${f(x + hx)} ${f(my)}`,
+      `C ${f(x + hx)} ${f(my + r)}, ${f(x + hx * 0.5)} ${f(yb - e)}, ${f(x)} ${f(yb - e)}`,
+      `L ${f(x)} ${f(yb)}`,
+    ].join(" ");
+  } else {
+    // bottom to top (left edge reversed)
+    return [
+      `L ${f(x)} ${f(ya - e)}`,
+      `C ${f(x + hx * 0.5)} ${f(ya - e)}, ${f(x + hx)} ${f(my + r)}, ${f(x + hx)} ${f(my)}`,
+      `C ${f(x + hx)} ${f(my - r)}, ${f(x + hx * 0.5)} ${f(yb + e)}, ${f(x)} ${f(yb + e)}`,
+      `L ${f(x)} ${f(yb)}`,
+    ].join(" ");
   }
-  cx /= 6 * area;
-  cy /= 6 * area;
-  return [cx, cy];
+}
+
+/** Round a number to 3 decimal places for compact SVG output */
+function f(n: number): string {
+  return Math.round(n * 1000) / 1000 + "";
 }

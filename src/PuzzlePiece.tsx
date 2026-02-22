@@ -16,6 +16,36 @@ interface Props {
 const HANDLE_LENGTH = 30;
 const PAD = 4;
 
+/**
+ * Apply `x' = (x - oX) * scale`, `y' = (y - oY) * scale` to all coordinates
+ * in an SVG path string (handles M, L, C, Z commands).
+ */
+function translateScalePath(path: string, oX: number, oY: number, scale: number): string {
+  // Replace all numeric tokens after command letters with transformed values.
+  // SVG path coords come in x,y pairs separated by spaces/commas.
+  let cmdIndex = 0;
+  const tokens = path.trim().split(/([MLCZmlcz]|\s*,\s*|\s+)/).filter(Boolean);
+  const out: string[] = [];
+  let isX = true; // alternates between x and y for coord pairs
+
+  for (const tok of tokens) {
+    if (/^[MLCZmlcz]$/i.test(tok)) {
+      out.push(tok);
+      isX = true; // reset coord pairing on new command
+    } else if (/^-?\d/.test(tok)) {
+      const val = parseFloat(tok);
+      const transformed = isX ? (val - oX) * scale : (val - oY) * scale;
+      out.push(String(Math.round(transformed * 100) / 100));
+      isX = !isX;
+    } else if (/^[\s,]+$/.test(tok)) {
+      out.push(" ");
+    } else {
+      out.push(tok);
+    }
+  }
+  return out.join("").replace(/\s+/g, " ").trim();
+}
+
 export const PuzzlePieceView: React.FC<Props> = React.memo(
   ({ piece, group, image, scale, isSelected, onSelect, onDragStart, onRotateStart }) => {
     const entity = piece || group;
@@ -23,6 +53,7 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
 
     const id = entity.id;
     const polygons: Point[][] = group ? group.polygons : [piece!.polygon];
+    const paths: string[] = group ? group.paths : [piece!.path];
     const imgCentroid = entity.centroid;
     const boardX = entity.x;
     const boardY = entity.y;
@@ -39,11 +70,7 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
       const svgW = w * scale;
       const svgH = h * scale;
 
-      const clips = polygons.map((poly) =>
-        poly
-          .map(([px, py]) => `${(px - oX) * scale},${(py - oY) * scale}`)
-          .join(" ")
-      );
+      const clipPaths = paths.map((p) => translateScalePath(p, oX, oY, scale));
 
       const imgT = {
         x: -oX * scale,
@@ -58,12 +85,12 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
       return {
         svgWidth: svgW,
         svgHeight: svgH,
-        clipPaths: clips,
+        clipPaths,
         imgTransform: imgT,
         centerOffsetX: coX,
         centerOffsetY: coY,
       };
-    }, [polygons, scale, image.naturalWidth, image.naturalHeight, imgCentroid]);
+    }, [polygons, paths, scale, image.naturalWidth, image.naturalHeight, imgCentroid]);
 
     const { svgWidth, svgHeight, clipPaths, imgTransform, centerOffsetX, centerOffsetY } = computed;
     const clipId = `clip-${id}`;
@@ -112,8 +139,8 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
         >
           <defs>
             <clipPath id={clipId}>
-              {clipPaths.map((pts, i) => (
-                <polygon key={i} points={pts} />
+              {clipPaths.map((d, i) => (
+                <path key={i} d={d} />
               ))}
             </clipPath>
           </defs>
@@ -126,10 +153,10 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
               height={imgTransform.height}
             />
           </g>
-          {clipPaths.map((pts, i) => (
-            <polygon
+          {clipPaths.map((d, i) => (
+            <path
               key={`outline-${i}`}
-              points={pts}
+              d={d}
               fill="none"
               stroke="rgba(255,255,255,0.4)"
               strokeWidth={0.5}
