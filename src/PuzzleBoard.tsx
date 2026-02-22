@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { PuzzlePieceView } from "./PuzzlePiece";
 import { usePuzzleStore } from "./usePuzzleStore";
 
-const today = new Date().toISOString().slice(0, 10);
-const IMAGE_URL = `https://puzzle.white-hat-de0d.workers.dev/${today}`;
+interface PuzzleBoardProps {
+  imageUrl: string;
+  pieceCount: number;
+}
 
-const PIECE_COUNT = 250;
-
-export const PuzzleBoard: React.FC = () => {
+export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount }) => {
   const store = usePuzzleStore();
   const boardRef = useRef<HTMLDivElement>(null);
   const [boardSize, setBoardSize] = useState({ width: 0, height: 0 });
@@ -43,14 +43,14 @@ export const PuzzleBoard: React.FC = () => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      store.initialize(img, boardSize.width, boardSize.height, PIECE_COUNT);
+      store.initialize(img, boardSize.width, boardSize.height, pieceCount);
       setLoading(false);
     };
     img.onerror = () => {
       setError("Failed to load the painting image. Please refresh to try again.");
       setLoading(false);
     };
-    img.src = IMAGE_URL;
+    img.src = imageUrl;
   }, [boardSize.width > 0 ? 1 : 0]); // only run once board is measured
 
   const handleDragStart = useCallback(
