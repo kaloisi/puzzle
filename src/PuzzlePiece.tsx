@@ -23,7 +23,6 @@ const PAD = 4;
 function translateScalePath(path: string, oX: number, oY: number, scale: number): string {
   // Replace all numeric tokens after command letters with transformed values.
   // SVG path coords come in x,y pairs separated by spaces/commas.
-  let cmdIndex = 0;
   const tokens = path.trim().split(/([MLCZmlcz]|\s*,\s*|\s+)/).filter(Boolean);
   const out: string[] = [];
   let isX = true; // alternates between x and y for coord pairs
