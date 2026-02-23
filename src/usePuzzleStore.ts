@@ -16,7 +16,6 @@ interface PuzzleState {
   selectedId: string | null;
   imageLoaded: boolean;
   completed: boolean;
-  nextZ: number;
 }
 
 type Action =
@@ -32,34 +31,21 @@ const initialState: PuzzleState = {
   selectedId: null,
   imageLoaded: false,
   completed: false,
-  nextZ: 1,
 };
 
 function reducer(state: PuzzleState, action: Action): PuzzleState {
   switch (action.type) {
-    case "INIT":
+    case "INIT": {
+      const total = action.pieces.length;
       return {
         ...initialState,
-        pieces: action.pieces,
+        pieces: action.pieces.map((p) => ({ ...p, zIndex: total - 1 })),
         imageLoaded: true,
-        nextZ: action.pieces.length + 1,
-      };
-
-    case "SELECT": {
-      if (!action.id) return { ...state, selectedId: null };
-      const z = state.nextZ;
-      return {
-        ...state,
-        selectedId: action.id,
-        nextZ: z + 1,
-        pieces: state.pieces.map((p) =>
-          p.id === action.id ? { ...p, zIndex: z } : p
-        ),
-        groups: state.groups.map((g) =>
-          g.id === action.id ? { ...g, zIndex: z } : g
-        ),
       };
     }
+
+    case "SELECT":
+      return { ...state, selectedId: action.id };
 
     case "MOVE":
       return {
@@ -294,7 +280,6 @@ function performSnap(
     const mergedX = active.x + centroidDx * cos - centroidDy * sin;
     const mergedY = active.y + centroidDx * sin + centroidDy * cos;
 
-    const newZ = state.nextZ;
     const newGroup: MergedGroup = {
       id: `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       pieceIds: mergedPieceIds,
@@ -304,7 +289,7 @@ function performSnap(
       x: mergedX,
       y: mergedY,
       rotation: active.rotation,
-      zIndex: newZ,
+      zIndex: pieces.length - mergedPieceIds.length,
     };
 
     const newGroups = groups.filter(
@@ -319,7 +304,6 @@ function performSnap(
       ...state,
       groups: newGroups,
       selectedId: newGroup.id,
-      nextZ: newZ + 1,
       completed: isComplete,
     };
 

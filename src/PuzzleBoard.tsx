@@ -2,6 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { PuzzlePieceView } from "./PuzzlePiece";
 import { usePuzzleStore } from "./usePuzzleStore";
 
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
 interface PuzzleBoardProps {
   imageUrl: string;
   pieceCount: number;
@@ -13,6 +19,8 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount }
   const [boardSize, setBoardSize] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const dragRef = useRef<{
     id: string;
     startX: number;
@@ -53,8 +61,16 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount }
     img.src = imageUrl;
   }, [boardSize.width > 0 ? 1 : 0]); // only run once board is measured
 
+  // Timer: ticks every second while game is running and not paused/completed
+  useEffect(() => {
+    if (!store.imageLoaded || paused || store.completed) return;
+    const id = window.setInterval(() => setElapsed((prev) => prev + 1), 1000);
+    return () => clearInterval(id);
+  }, [store.imageLoaded, paused, store.completed]);
+
   const handleDragStart = useCallback(
     (id: string, e: React.PointerEvent) => {
+      if (paused) return;
       e.preventDefault();
       boardRef.current?.setPointerCapture(e.pointerId);
       dragRef.current = {
@@ -67,11 +83,12 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount }
         centerY: 0,
       };
     },
-    []
+    [paused]
   );
 
   const handleRotateStart = useCallback(
     (id: string, e: React.PointerEvent) => {
+      if (paused) return;
       e.preventDefault();
       boardRef.current?.setPointerCapture(e.pointerId);
 
@@ -89,7 +106,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount }
         centerY: entity.y,
       };
     },
-    [store]
+    [store, paused]
   );
 
   const handlePointerMove = useCallback(
@@ -255,6 +272,79 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount }
           />
         ))}
 
+      {/* Timer and pause/play button */}
+      {store.imageLoaded && !store.completed && (
+        <div
+          style={{
+            position: "absolute",
+            top: 16,
+            right: 16,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            zIndex: 100000,
+            fontFamily: "sans-serif",
+          }}
+        >
+          <div
+            style={{
+              background: "rgba(0,0,0,0.6)",
+              color: "white",
+              padding: "8px 16px",
+              borderRadius: 8,
+              fontSize: 22,
+              fontVariantNumeric: "tabular-nums",
+              minWidth: 70,
+              textAlign: "center",
+            }}
+          >
+            {formatTime(elapsed)}
+          </div>
+          <button
+            onClick={() => setPaused((p) => !p)}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              border: "none",
+              background: "rgba(0,0,0,0.6)",
+              color: "white",
+              fontSize: 20,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title={paused ? "Resume" : "Pause"}
+          >
+            {paused ? "\u25B6" : "\u275A\u275A"}
+          </button>
+        </div>
+      )}
+
+      {/* Paused overlay */}
+      {paused && !store.completed && (
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            background: "rgba(0,0,0,0.6)",
+            color: "white",
+            padding: "24px 48px",
+            borderRadius: 16,
+            fontSize: 28,
+            fontFamily: "sans-serif",
+            zIndex: 100000,
+            pointerEvents: "none",
+          }}
+        >
+          Paused
+        </div>
+      )}
+
+      {/* Completion overlay */}
       {store.completed && (
         <div
           style={{
@@ -262,20 +352,20 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount }
             top: "50%",
             left: "50%",
             transform: "translate(-50%, -50%)",
-            background: "rgba(0,0,0,0.8)",
+            background: "rgba(0,0,0,0.85)",
             color: "white",
-            padding: "40px 60px",
-            borderRadius: "16px",
-            fontSize: "32px",
+            padding: "48px 64px",
+            borderRadius: 20,
+            fontSize: 36,
             fontFamily: "sans-serif",
             textAlign: "center",
             zIndex: 100000,
             boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
           }}
         >
-          <div style={{ marginBottom: "12px" }}>Puzzle Complete!</div>
-          <div style={{ fontSize: "16px", opacity: 0.7 }}>
-            Claude Monet — The Japanese Footbridge
+          <div style={{ marginBottom: 8 }}>Congratulations!</div>
+          <div style={{ fontSize: 20, opacity: 0.8, marginBottom: 16 }}>
+            You completed the puzzle in {formatTime(elapsed)}
           </div>
         </div>
       )}
