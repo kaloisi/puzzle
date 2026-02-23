@@ -11,9 +11,10 @@ function formatTime(seconds: number): string {
 interface PuzzleBoardProps {
   imageUrl: string;
   pieceCount: number;
+  onClose: () => void;
 }
 
-export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount }) => {
+export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, onClose }) => {
   const store = usePuzzleStore();
   const boardRef = useRef<HTMLDivElement>(null);
   const [boardSize, setBoardSize] = useState({ width: 0, height: 0 });
@@ -364,9 +365,25 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount }
           }}
         >
           <div style={{ marginBottom: 8 }}>Congratulations!</div>
-          <div style={{ fontSize: 20, opacity: 0.8, marginBottom: 16 }}>
+          <div style={{ fontSize: 20, opacity: 0.8, marginBottom: 24 }}>
             You completed the puzzle in {formatTime(elapsed)}
           </div>
+          <button
+            onClick={onClose}
+            style={{
+              padding: "12px 36px",
+              fontSize: 18,
+              fontWeight: 600,
+              border: "none",
+              borderRadius: 10,
+              background: "linear-gradient(135deg, #3498db, #2980b9)",
+              color: "white",
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+            }}
+          >
+            Back to Menu
+          </button>
         </div>
       )}
     </div>

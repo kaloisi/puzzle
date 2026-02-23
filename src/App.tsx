@@ -17,7 +17,7 @@ function App() {
     );
   }
 
-  return <PuzzleBoard imageUrl={game.imageUrl} pieceCount={game.pieceCount} />;
+  return <PuzzleBoard imageUrl={game.imageUrl} pieceCount={game.pieceCount} onClose={() => setGame(null)} />;
 }
 
 export default App;
