@@ -41,12 +41,10 @@ const DAY_HEADERS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const TODAY = new Date();
 TODAY.setHours(0, 0, 0, 0);
 
-const MAX_DATE = new Date(2026, 1, 22); // Feb 22, 2026
+const MIN_DATE = new Date(2026, 1, 22); // Feb 22, 2026
 
 export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
-  const [selectedDate, setSelectedDate] = useState<Date>(
-    TODAY > MAX_DATE ? MAX_DATE : TODAY
-  );
+  const [selectedDate, setSelectedDate] = useState<Date>(TODAY);
   const [viewYear, setViewYear] = useState(selectedDate.getFullYear());
   const [viewMonth, setViewMonth] = useState(selectedDate.getMonth());
   const [difficulty, setDifficulty] = useState<Difficulty>("normal");
@@ -54,8 +52,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
   const totalDays = daysInMonth(viewYear, viewMonth);
   const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
 
-  const canGoPrev = !(viewYear === TODAY.getFullYear() && viewMonth === TODAY.getMonth()) || TODAY > MAX_DATE;
-  const canGoNext = !(viewYear === MAX_DATE.getFullYear() && viewMonth === MAX_DATE.getMonth());
+  const canGoPrev = !(viewYear === MIN_DATE.getFullYear() && viewMonth === MIN_DATE.getMonth());
+  const canGoNext = !(viewYear === TODAY.getFullYear() && viewMonth === TODAY.getMonth());
 
   const goPrev = () => {
     if (!canGoPrev) return;
@@ -79,7 +77,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
 
   const isDateInRange = (day: number): boolean => {
     const d = new Date(viewYear, viewMonth, day);
-    return d >= TODAY && d <= MAX_DATE;
+    return d >= MIN_DATE && d <= TODAY;
   };
 
   const handleDayClick = (day: number) => {
