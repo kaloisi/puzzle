@@ -54,7 +54,7 @@ export function generatePuzzlePieces(
       // +1 = tab, -1 = blank, 0 = boundary (straight)
       const topDir = r > 0 ? -hEdge[r - 1][c] : 0;    // negate: neighbor above owns the edge direction
       const rightDir = c < cols - 1 ? vEdge[r][c] : 0;
-      const bottomDir = r < rows - 1 ? -hEdge[r][c] : 0; // negate: going right-to-left reversal
+      const bottomDir = r < rows - 1 ? hEdge[r][c] : 0;
       const leftDir = c > 0 ? -vEdge[r][c - 1] : 0;   // negate: going bottom-to-top reversal
 
       const path = buildPiecePath(x0, y0, x1, y1, cellW, cellH, tabSize,
