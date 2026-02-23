@@ -123,8 +123,8 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
           zIndex: isSelected ? zIndex + 10000 : zIndex,
           cursor: isSelected ? "grabbing" : "grab",
           filter: isSelected
-            ? "drop-shadow(4px 6px 8px rgba(0,0,0,0.5))"
-            : "drop-shadow(1px 2px 3px rgba(0,0,0,0.3))",
+            ? "drop-shadow(0px 14px 20px rgba(0,0,0,0.55))"
+            : "drop-shadow(0px 4px 6px rgba(0,0,0,0.3))",
           transition: isSelected ? "filter 0.15s" : "filter 0.3s",
         }}
         onPointerDown={handlePointerDown}
