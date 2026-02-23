@@ -134,7 +134,21 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount }
 
   const handlePointerUp = useCallback(() => {
     if (dragRef.current) {
-      const { id } = dragRef.current;
+      const { id, mode } = dragRef.current;
+
+      if (mode === "rotate") {
+        // Snap rotation to nearest 90-degree angle if close
+        const entities = store.getEntities();
+        const entity = entities.find((en) => en.id === id);
+        if (entity) {
+          const nearest90 = Math.round(entity.rotation / 90) * 90;
+          const diff = Math.abs(entity.rotation - nearest90);
+          if (diff <= 10) {
+            store.rotatePiece(id, nearest90 % 360);
+          }
+        }
+      }
+
       store.trySnap(id);
       dragRef.current = null;
     }
