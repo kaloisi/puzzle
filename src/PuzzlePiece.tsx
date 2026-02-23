@@ -120,7 +120,7 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
           height: svgHeight,
           transform: `rotate(${rotation}deg)`,
           transformOrigin: `${centerOffsetX}px ${centerOffsetY}px`,
-          zIndex,
+          zIndex: isSelected ? zIndex + 10000 : zIndex,
           cursor: isSelected ? "grabbing" : "grab",
           filter: isSelected
             ? "drop-shadow(4px 6px 8px rgba(0,0,0,0.5))"
@@ -168,8 +168,8 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
                 y={-6}
                 width={svgWidth + 12}
                 height={svgHeight + 12}
-                rx={8}
-                ry={8}
+                rx={16}
+                ry={16}
                 fill="none"
                 stroke="#4a90d9"
                 strokeWidth={1.5}
