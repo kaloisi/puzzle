@@ -43,6 +43,9 @@ TODAY.setHours(0, 0, 0, 0);
 
 const MIN_DATE = new Date(2026, 1, 22); // Feb 22, 2026
 
+// Check for hidden debug URL parameter
+const DEBUG_MODE = new URLSearchParams(window.location.search).has("debug");
+
 export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
   const [selectedDate, setSelectedDate] = useState<Date>(TODAY);
   const [viewYear, setViewYear] = useState(selectedDate.getFullYear());
@@ -52,8 +55,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
   const totalDays = daysInMonth(viewYear, viewMonth);
   const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
 
-  const canGoPrev = !(viewYear === MIN_DATE.getFullYear() && viewMonth === MIN_DATE.getMonth());
-  const canGoNext = !(viewYear === TODAY.getFullYear() && viewMonth === TODAY.getMonth());
+  const canGoPrev = DEBUG_MODE || !(viewYear === MIN_DATE.getFullYear() && viewMonth === MIN_DATE.getMonth());
+  const canGoNext = DEBUG_MODE || !(viewYear === TODAY.getFullYear() && viewMonth === TODAY.getMonth());
 
   const goPrev = () => {
     if (!canGoPrev) return;
@@ -76,6 +79,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
   };
 
   const isDateInRange = (day: number): boolean => {
+    if (DEBUG_MODE) return true;
     const d = new Date(viewYear, viewMonth, day);
     return d >= MIN_DATE && d <= TODAY;
   };
@@ -184,6 +188,70 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
         >
           Jigsaw Puzzle
         </h1>
+
+        {/* Difficulty toggle - moved above calendar */}
+        <div style={{ width: "100%" }}>
+          <label
+            style={{
+              color: "rgba(255,255,255,0.6)",
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              marginBottom: 8,
+              display: "block",
+            }}
+          >
+            Difficulty
+          </label>
+
+          <div
+            style={{
+              display: "flex",
+              background: "rgba(255,255,255,0.07)",
+              borderRadius: 10,
+              padding: 4,
+              gap: 4,
+            }}
+          >
+            {(["easy", "normal", "hard"] as Difficulty[]).map((d) => (
+              <button
+                key={d}
+                onClick={() => setDifficulty(d)}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  border: "none",
+                  borderRadius: 8,
+                  background:
+                    difficulty === d
+                      ? "#3498db"
+                      : "transparent",
+                  color:
+                    difficulty === d
+                      ? "#fff"
+                      : "rgba(255,255,255,0.6)",
+                  fontSize: 14,
+                  fontWeight: difficulty === d ? 700 : 500,
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                  textTransform: "capitalize",
+                }}
+              >
+                {d}
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: 11,
+                    opacity: 0.6,
+                    marginTop: 2,
+                  }}
+                >
+                  {DIFFICULTY_PIECES[d]} pcs
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Calendar */}
         <div style={{ width: "100%" }}>
@@ -294,70 +362,6 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
             >
               {cells}
             </div>
-          </div>
-        </div>
-
-        {/* Difficulty toggle */}
-        <div style={{ width: "100%" }}>
-          <label
-            style={{
-              color: "rgba(255,255,255,0.6)",
-              fontSize: 12,
-              textTransform: "uppercase",
-              letterSpacing: 1,
-              marginBottom: 8,
-              display: "block",
-            }}
-          >
-            Difficulty
-          </label>
-
-          <div
-            style={{
-              display: "flex",
-              background: "rgba(255,255,255,0.07)",
-              borderRadius: 10,
-              padding: 4,
-              gap: 4,
-            }}
-          >
-            {(["easy", "normal", "hard"] as Difficulty[]).map((d) => (
-              <button
-                key={d}
-                onClick={() => setDifficulty(d)}
-                style={{
-                  flex: 1,
-                  padding: "10px 0",
-                  border: "none",
-                  borderRadius: 8,
-                  background:
-                    difficulty === d
-                      ? "#3498db"
-                      : "transparent",
-                  color:
-                    difficulty === d
-                      ? "#fff"
-                      : "rgba(255,255,255,0.6)",
-                  fontSize: 14,
-                  fontWeight: difficulty === d ? 700 : 500,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                  textTransform: "capitalize",
-                }}
-              >
-                {d}
-                <span
-                  style={{
-                    display: "block",
-                    fontSize: 11,
-                    opacity: 0.6,
-                    marginTop: 2,
-                  }}
-                >
-                  {DIFFICULTY_PIECES[d]} pcs
-                </span>
-              </button>
-            ))}
           </div>
         </div>
 
