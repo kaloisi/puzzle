@@ -28,6 +28,18 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
 
+  // Refs for current values (needed in native event handlers to avoid stale closures)
+  const zoomRef = useRef(1);
+  const panXRef = useRef(0);
+  const panYRef = useRef(0);
+  zoomRef.current = zoom;
+  panXRef.current = panX;
+  panYRef.current = panY;
+
+  // Ref to always access the latest store (methods + selectedId)
+  const storeRef = useRef(store);
+  storeRef.current = store;
+
   const dragRef = useRef<{
     id: string;
     startX: number;
@@ -38,8 +50,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
     centerY: number;
   } | null>(null);
 
-  // Multi-touch tracking
-  const touchesRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  // Multi-touch pinch/rotate state (managed via ref for native touch events)
   const pinchRef = useRef<{
     mode: "zoom" | "rotate";
     initialDist: number;
@@ -144,39 +155,8 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
-      // Update touch tracking
-      touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-      // Handle two-finger gestures
-      if (touchesRef.current.size === 2 && pinchRef.current) {
-        const points = Array.from(touchesRef.current.values());
-        const dx = points[1].x - points[0].x;
-        const dy = points[1].y - points[0].y;
-        const currentDist = Math.sqrt(dx * dx + dy * dy);
-        const currentAngle = Math.atan2(dy, dx);
-        const currentMidX = (points[0].x + points[1].x) / 2;
-        const currentMidY = (points[0].y + points[1].y) / 2;
-
-        if (pinchRef.current.mode === "zoom") {
-          // Pinch to zoom
-          const scaleFactor = currentDist / pinchRef.current.initialDist;
-          const newZoom = Math.min(5, Math.max(0.25, pinchRef.current.initialZoom * scaleFactor));
-          setZoom(newZoom);
-
-          // Pan so the midpoint stays stable
-          const midDx = currentMidX - pinchRef.current.initialMidX;
-          const midDy = currentMidY - pinchRef.current.initialMidY;
-          setPanX(pinchRef.current.initialPanX + midDx);
-          setPanY(pinchRef.current.initialPanY + midDy);
-        } else if (pinchRef.current.mode === "rotate" && pinchRef.current.targetId) {
-          // Two-finger rotate selected piece
-          const deltaAngle = ((currentAngle - pinchRef.current.initialAngle) * 180) / Math.PI;
-          let newRotation = pinchRef.current.initialRotation + deltaAngle;
-          newRotation = ((newRotation % 360) + 360) % 360;
-          store.rotatePiece(pinchRef.current.targetId, newRotation);
-        }
-        return;
-      }
+      // Skip if a two-finger gesture is active (handled by native touch events)
+      if (pinchRef.current) return;
 
       if (!dragRef.current) return;
       const { id, mode } = dragRef.current;
@@ -198,16 +178,12 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         const cy = entity.y;
 
         const [bx, by] = screenToBoard(e.clientX, e.clientY);
-        const [bsx, bsy] = screenToBoard(dragRef.current.startX * zoom + panX, dragRef.current.startY * zoom + panY);
-
+        // dragRef.current.startX/startY are already in board-space
         const startAngle = Math.atan2(
-          bsy - cy,
-          bsx - cx
+          dragRef.current.startY - cy,
+          dragRef.current.startX - cx
         );
-        const currentAngle = Math.atan2(
-          by - cy,
-          bx - cx
-        );
+        const currentAngle = Math.atan2(by - cy, bx - cx);
         const deltaAngle =
           ((currentAngle - startAngle) * 180) / Math.PI;
 
@@ -217,119 +193,173 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         store.rotatePiece(id, newRotation);
       }
     },
-    [store, zoom, panX, panY, screenToBoard]
+    [store, screenToBoard]
   );
 
-  const handlePointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      touchesRef.current.delete(e.pointerId);
+  const handlePointerUp = useCallback(() => {
+    if (dragRef.current) {
+      const { id, mode } = dragRef.current;
 
-      // End pinch gesture
-      if (pinchRef.current) {
-        if (pinchRef.current.mode === "rotate" && pinchRef.current.targetId) {
-          // Snap rotation on release
-          const entities = store.getEntities();
-          const entity = entities.find((en) => en.id === pinchRef.current!.targetId);
-          if (entity) {
-            const nearest90 = Math.round(entity.rotation / 90) * 90;
-            const diff = Math.abs(entity.rotation - nearest90);
-            if (diff <= 10) {
-              store.rotatePiece(pinchRef.current.targetId, nearest90 % 360);
-            }
+      if (mode === "rotate") {
+        // Snap rotation to nearest 90-degree angle if close
+        const entities = store.getEntities();
+        const entity = entities.find((en) => en.id === id);
+        if (entity) {
+          const nearest90 = Math.round(entity.rotation / 90) * 90;
+          const diff = Math.abs(entity.rotation - nearest90);
+          if (diff <= 10) {
+            store.rotatePiece(id, nearest90 % 360);
           }
-          store.trySnap(pinchRef.current.targetId);
         }
-        if (touchesRef.current.size < 2) {
-          pinchRef.current = null;
-        }
-        return;
       }
 
-      if (dragRef.current) {
-        const { id, mode } = dragRef.current;
+      store.trySnap(id);
+      dragRef.current = null;
+    }
+  }, [store]);
 
-        if (mode === "rotate") {
-          // Snap rotation to nearest 90-degree angle if close
-          const entities = store.getEntities();
-          const entity = entities.find((en) => en.id === id);
-          if (entity) {
-            const nearest90 = Math.round(entity.rotation / 90) * 90;
-            const diff = Math.abs(entity.rotation - nearest90);
-            if (diff <= 10) {
-              store.rotatePiece(id, nearest90 % 360);
-            }
-          }
-        }
-
-        store.trySnap(id);
-        dragRef.current = null;
+  const handleBoardClick = useCallback(
+    (e: React.PointerEvent) => {
+      // Deselect if clicking on empty space
+      if (e.target === boardRef.current) {
+        store.select(null);
       }
     },
     [store]
   );
 
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  // ---- Native touch events for multi-touch (pinch-to-zoom, two-finger rotation) ----
+  // Using native TouchEvent API because it provides ALL active touches in a single
+  // event object (e.touches), unlike pointer events which fire separately per pointer.
+  // This also avoids the issue where PuzzlePiece's stopPropagation on pointer events
+  // prevents the board from seeing touches on pieces.
+  useEffect(() => {
+    const board = boardRef.current;
+    if (!board) return;
 
-      // Detect two-finger gesture start
-      if (touchesRef.current.size === 2) {
-        // Cancel any single-finger drag in progress
+    const getTouchDist = (t1: Touch, t2: Touch) => {
+      const dx = t2.clientX - t1.clientX;
+      const dy = t2.clientY - t1.clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const getTouchAngle = (t1: Touch, t2: Touch) => {
+      return Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        // Cancel any single-finger pointer drag in progress
         dragRef.current = null;
 
-        const points = Array.from(touchesRef.current.values());
-        const dx = points[1].x - points[0].x;
-        const dy = points[1].y - points[0].y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const angle = Math.atan2(dy, dx);
-        const midX = (points[0].x + points[1].x) / 2;
-        const midY = (points[0].y + points[1].y) / 2;
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = getTouchDist(t1, t2);
+        const angle = getTouchAngle(t1, t2);
+        const midX = (t1.clientX + t2.clientX) / 2;
+        const midY = (t1.clientY + t2.clientY) / 2;
 
-        // If a piece is selected, two-finger gesture rotates it
-        // Otherwise, it zooms/pans
-        const selectedId = store.selectedId;
+        const s = storeRef.current;
+        const selectedId = s.selectedId;
+
+        // If a piece is selected (lollipop visible), two-finger gesture rotates it
         if (selectedId) {
-          const entities = store.getEntities();
+          const entities = s.getEntities();
           const entity = entities.find((en) => en.id === selectedId);
           if (entity) {
             pinchRef.current = {
               mode: "rotate",
               initialDist: dist,
-              initialZoom: zoom,
+              initialZoom: zoomRef.current,
               initialAngle: angle,
               initialRotation: entity.rotation,
               initialMidX: midX,
               initialMidY: midY,
-              initialPanX: panX,
-              initialPanY: panY,
+              initialPanX: panXRef.current,
+              initialPanY: panYRef.current,
               targetId: selectedId,
             };
             return;
           }
         }
 
+        // No piece selected: pinch to zoom/pan
         pinchRef.current = {
           mode: "zoom",
           initialDist: dist,
-          initialZoom: zoom,
+          initialZoom: zoomRef.current,
           initialAngle: angle,
           initialRotation: 0,
           initialMidX: midX,
           initialMidY: midY,
-          initialPanX: panX,
-          initialPanY: panY,
+          initialPanX: panXRef.current,
+          initialPanY: panYRef.current,
           targetId: null,
         };
-        return;
       }
+    };
 
-      // Single touch on empty space: deselect
-      if (e.target === boardRef.current) {
-        store.select(null);
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchRef.current) {
+        e.preventDefault();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const currentDist = getTouchDist(t1, t2);
+        const currentAngle = getTouchAngle(t1, t2);
+        const currentMidX = (t1.clientX + t2.clientX) / 2;
+        const currentMidY = (t1.clientY + t2.clientY) / 2;
+
+        if (pinchRef.current.mode === "zoom") {
+          const scaleFactor = currentDist / pinchRef.current.initialDist;
+          const newZoom = Math.min(5, Math.max(0.25, pinchRef.current.initialZoom * scaleFactor));
+          setZoom(newZoom);
+
+          // Pan so the midpoint stays stable
+          const midDx = currentMidX - pinchRef.current.initialMidX;
+          const midDy = currentMidY - pinchRef.current.initialMidY;
+          setPanX(pinchRef.current.initialPanX + midDx);
+          setPanY(pinchRef.current.initialPanY + midDy);
+        } else if (pinchRef.current.mode === "rotate" && pinchRef.current.targetId) {
+          const deltaAngle = ((currentAngle - pinchRef.current.initialAngle) * 180) / Math.PI;
+          let newRotation = pinchRef.current.initialRotation + deltaAngle;
+          newRotation = ((newRotation % 360) + 360) % 360;
+          storeRef.current.rotatePiece(pinchRef.current.targetId, newRotation);
+        }
       }
-    },
-    [store, zoom, panX, panY]
-  );
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (pinchRef.current && e.touches.length < 2) {
+        if (pinchRef.current.mode === "rotate" && pinchRef.current.targetId) {
+          const s = storeRef.current;
+          const entities = s.getEntities();
+          const entity = entities.find((en) => en.id === pinchRef.current!.targetId);
+          if (entity) {
+            const nearest90 = Math.round(entity.rotation / 90) * 90;
+            const diff = Math.abs(entity.rotation - nearest90);
+            if (diff <= 10) {
+              s.rotatePiece(pinchRef.current.targetId, nearest90 % 360);
+            }
+          }
+          s.trySnap(pinchRef.current.targetId);
+        }
+        pinchRef.current = null;
+      }
+    };
+
+    board.addEventListener("touchstart", handleTouchStart, { passive: false });
+    board.addEventListener("touchmove", handleTouchMove, { passive: false });
+    board.addEventListener("touchend", handleTouchEnd);
+    board.addEventListener("touchcancel", handleTouchEnd);
+
+    return () => {
+      board.removeEventListener("touchstart", handleTouchStart);
+      board.removeEventListener("touchmove", handleTouchMove);
+      board.removeEventListener("touchend", handleTouchEnd);
+      board.removeEventListener("touchcancel", handleTouchEnd);
+    };
+  }, []); // No deps: all mutable values accessed via refs
 
   // Mouse wheel zoom
   useEffect(() => {
@@ -339,16 +369,17 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       const delta = -e.deltaY * 0.001;
-      const newZoom = Math.min(5, Math.max(0.25, zoom * (1 + delta)));
+      const curZoom = zoomRef.current;
+      const newZoom = Math.min(5, Math.max(0.25, curZoom * (1 + delta)));
 
       // Zoom toward cursor position
       const rect = board.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      const scale = newZoom / zoom;
-      const newPanX = mouseX - scale * (mouseX - panX);
-      const newPanY = mouseY - scale * (mouseY - panY);
+      const scale = newZoom / curZoom;
+      const newPanX = mouseX - scale * (mouseX - panXRef.current);
+      const newPanY = mouseY - scale * (mouseY - panYRef.current);
 
       setZoom(newZoom);
       setPanX(newPanX);
@@ -357,7 +388,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
 
     board.addEventListener("wheel", handleWheel, { passive: false });
     return () => board.removeEventListener("wheel", handleWheel);
-  }, [zoom, panX, panY]);
+  }, []); // No deps: uses refs
 
   const entities = store.getEntities();
   const sortedEntities = [...entities].sort((a, b) => {
@@ -403,7 +434,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
       }}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerDown={handlePointerDown}
+      onPointerDown={handleBoardClick}
     >
       {loading && (
         <div
@@ -512,13 +543,13 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         </div>
       )}
 
-      {/* Zoom controls */}
+      {/* Zoom controls - positioned top-left for reliable mobile visibility */}
       {store.imageLoaded && !store.completed && (
         <div
           style={{
             position: "absolute",
-            bottom: 16,
-            right: 16,
+            top: 16,
+            left: 16,
             display: "flex",
             flexDirection: "column",
             gap: 6,
@@ -537,13 +568,13 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
               setZoom(newZoom);
             }}
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 8,
+              width: 44,
+              height: 44,
+              borderRadius: 10,
               border: "none",
               background: "rgba(0,0,0,0.6)",
               color: "white",
-              fontSize: 22,
+              fontSize: 24,
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
@@ -564,13 +595,13 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
               setZoom(newZoom);
             }}
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 8,
+              width: 44,
+              height: 44,
+              borderRadius: 10,
               border: "none",
               background: "rgba(0,0,0,0.6)",
               color: "white",
-              fontSize: 22,
+              fontSize: 24,
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
@@ -588,9 +619,9 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
                 setPanY(0);
               }}
               style={{
-                width: 40,
-                height: 40,
-                borderRadius: 8,
+                width: 44,
+                height: 44,
+                borderRadius: 10,
                 border: "none",
                 background: "rgba(0,0,0,0.6)",
                 color: "white",
