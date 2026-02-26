@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { PuzzlePieceView } from "./PuzzlePiece";
 import { usePuzzleStore } from "./usePuzzleStore";
+import type { Difficulty } from "./StartScreen";
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -11,10 +12,11 @@ function formatTime(seconds: number): string {
 interface PuzzleBoardProps {
   imageUrl: string;
   pieceCount: number;
+  difficulty: Difficulty;
   onClose: () => void;
 }
 
-export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, onClose }) => {
+export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, difficulty, onClose }) => {
   const store = usePuzzleStore();
   const boardRef = useRef<HTMLDivElement>(null);
   const [boardSize, setBoardSize] = useState({ width: 0, height: 0 });
@@ -22,6 +24,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [showImage, setShowImage] = useState(false);
 
   // Zoom/pan state
   const [zoom, setZoom] = useState(1);
@@ -523,6 +526,63 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
               {Math.round(zoom * 100)}%
             </button>
           )}
+        </div>
+      )}
+
+      {/* Show original image button (easy/normal only) */}
+      {store.imageLoaded && !store.completed && (difficulty === "easy" || difficulty === "normal") && (
+        <button
+          onClick={() => setShowImage(true)}
+          style={{
+            position: "absolute",
+            bottom: 16,
+            right: 16,
+            zIndex: 100000,
+            width: 44,
+            height: 44,
+            borderRadius: 10,
+            border: "none",
+            background: "rgba(0,0,0,0.6)",
+            color: "white",
+            fontSize: 20,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontFamily: "sans-serif",
+          }}
+          title="Show original image"
+        >
+          &#128444;
+        </button>
+      )}
+
+      {/* Original image popup */}
+      {showImage && (
+        <div
+          onClick={() => setShowImage(false)}
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 200000,
+            background: "rgba(0,0,0,0.8)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <img
+            src={imageUrl}
+            alt="Original painting"
+            style={{
+              maxWidth: "85vw",
+              maxHeight: "85vh",
+              borderRadius: 12,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+              objectFit: "contain",
+            }}
+          />
         </div>
       )}
 

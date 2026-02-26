@@ -8,8 +8,10 @@ const DIFFICULTY_PIECES: Record<Difficulty, number> = {
   hard: 250,
 };
 
+export type { Difficulty };
+
 interface StartScreenProps {
-  onStart: (date: string, pieceCount: number) => void;
+  onStart: (date: string, pieceCount: number, difficulty: Difficulty) => void;
 }
 
 function formatDate(d: Date): string {
@@ -90,7 +92,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
   };
 
   const handleStart = () => {
-    onStart(formatDate(selectedDate), DIFFICULTY_PIECES[difficulty]);
+    onStart(formatDate(selectedDate), DIFFICULTY_PIECES[difficulty], difficulty);
   };
 
   // Build calendar grid cells
