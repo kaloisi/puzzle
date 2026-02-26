@@ -536,7 +536,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
           style={{
             position: "absolute",
             top: 16,
-            left: 16,
+            left: 70,
             zIndex: 100000,
             width: 44,
             height: 44,
