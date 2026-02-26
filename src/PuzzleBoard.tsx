@@ -535,8 +535,8 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
           onClick={() => setShowImage(true)}
           style={{
             position: "absolute",
-            bottom: 16,
-            right: 16,
+            top: 16,
+            left: 70,
             zIndex: 100000,
             width: 44,
             height: 44,
