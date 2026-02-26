@@ -624,7 +624,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
             fontFamily: "sans-serif",
             textAlign: "center",
             zIndex: 100000,
-            boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+            boxShadow: "0 0 60px rgba(0,0,0,0.5)",
           }}
         >
           <div style={{ marginBottom: 8 }}>Congratulations!</div>
