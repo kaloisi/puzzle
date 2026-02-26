@@ -28,7 +28,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
 
-  // Refs for current values (needed in native event handlers to avoid stale closures)
+  // Refs for wheel handler (avoids re-registering listener on every zoom/pan change)
   const zoomRef = useRef(1);
   const panXRef = useRef(0);
   const panYRef = useRef(0);
@@ -36,10 +36,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
   panXRef.current = panX;
   panYRef.current = panY;
 
-  // Ref to always access the latest store (methods + selectedId)
-  const storeRef = useRef(store);
-  storeRef.current = store;
-
+  // Piece drag/rotate
   const dragRef = useRef<{
     id: string;
     startX: number;
@@ -50,18 +47,13 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
     centerY: number;
   } | null>(null);
 
-  // Multi-touch pinch/rotate state (managed via ref for native touch events)
-  const pinchRef = useRef<{
-    mode: "zoom" | "rotate";
-    initialDist: number;
-    initialZoom: number;
-    initialAngle: number;
-    initialRotation: number;
-    initialMidX: number;
-    initialMidY: number;
-    initialPanX: number;
-    initialPanY: number;
-    targetId: string | null;
+  // Background pan
+  const panDragRef = useRef<{
+    startX: number;
+    startY: number;
+    startPanX: number;
+    startPanY: number;
+    moved: boolean;
   } | null>(null);
 
   // Measure board
@@ -155,9 +147,19 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
-      // Skip if a two-finger gesture is active (handled by native touch events)
-      if (pinchRef.current) return;
+      // Background pan
+      if (panDragRef.current) {
+        const dx = e.clientX - panDragRef.current.startX;
+        const dy = e.clientY - panDragRef.current.startY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          panDragRef.current.moved = true;
+        }
+        setPanX(panDragRef.current.startPanX + dx);
+        setPanY(panDragRef.current.startPanY + dy);
+        return;
+      }
 
+      // Piece drag/rotate
       if (!dragRef.current) return;
       const { id, mode } = dragRef.current;
 
@@ -169,7 +171,6 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         dragRef.current.startY = by;
         store.movePiece(id, dx, dy);
       } else if (mode === "rotate") {
-        // Compute angle from center of piece to current pointer
         const entities = store.getEntities();
         const entity = entities.find((en) => en.id === id);
         if (!entity) return;
@@ -178,7 +179,6 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         const cy = entity.y;
 
         const [bx, by] = screenToBoard(e.clientX, e.clientY);
-        // dragRef.current.startX/startY are already in board-space
         const startAngle = Math.atan2(
           dragRef.current.startY - cy,
           dragRef.current.startX - cx
@@ -188,7 +188,6 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
           ((currentAngle - startAngle) * 180) / Math.PI;
 
         let newRotation = dragRef.current.startRotation + deltaAngle;
-        // Normalize to 0-360
         newRotation = ((newRotation % 360) + 360) % 360;
         store.rotatePiece(id, newRotation);
       }
@@ -196,170 +195,58 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
     [store, screenToBoard]
   );
 
-  const handlePointerUp = useCallback(() => {
-    if (dragRef.current) {
-      const { id, mode } = dragRef.current;
-
-      if (mode === "rotate") {
-        // Snap rotation to nearest 90-degree angle if close
-        const entities = store.getEntities();
-        const entity = entities.find((en) => en.id === id);
-        if (entity) {
-          const nearest90 = Math.round(entity.rotation / 90) * 90;
-          const diff = Math.abs(entity.rotation - nearest90);
-          if (diff <= 10) {
-            store.rotatePiece(id, nearest90 % 360);
-          }
+  const handlePointerUp = useCallback(
+    (_e: React.PointerEvent) => {
+      // End background pan
+      if (panDragRef.current) {
+        // If barely moved, treat as a click to deselect
+        if (!panDragRef.current.moved) {
+          store.select(null);
         }
+        panDragRef.current = null;
+        return;
       }
 
-      store.trySnap(id);
-      dragRef.current = null;
-    }
-  }, [store]);
+      // End piece drag/rotate
+      if (dragRef.current) {
+        const { id, mode } = dragRef.current;
 
-  const handleBoardClick = useCallback(
-    (e: React.PointerEvent) => {
-      // Deselect if clicking on empty space
-      if (e.target === boardRef.current) {
-        store.select(null);
+        if (mode === "rotate") {
+          const entities = store.getEntities();
+          const entity = entities.find((en) => en.id === id);
+          if (entity) {
+            const nearest90 = Math.round(entity.rotation / 90) * 90;
+            const diff = Math.abs(entity.rotation - nearest90);
+            if (diff <= 10) {
+              store.rotatePiece(id, nearest90 % 360);
+            }
+          }
+        }
+
+        store.trySnap(id);
+        dragRef.current = null;
       }
     },
     [store]
   );
 
-  // ---- Native touch events for multi-touch (pinch-to-zoom, two-finger rotation) ----
-  // Using native TouchEvent API because it provides ALL active touches in a single
-  // event object (e.touches), unlike pointer events which fire separately per pointer.
-  // This also avoids the issue where PuzzlePiece's stopPropagation on pointer events
-  // prevents the board from seeing touches on pieces.
-  useEffect(() => {
-    const board = boardRef.current;
-    if (!board) return;
-
-    const getTouchDist = (t1: Touch, t2: Touch) => {
-      const dx = t2.clientX - t1.clientX;
-      const dy = t2.clientY - t1.clientY;
-      return Math.sqrt(dx * dx + dy * dy);
-    };
-
-    const getTouchAngle = (t1: Touch, t2: Touch) => {
-      return Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
-    };
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
+  const handleBoardPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      // Only start panning when clicking on the board background itself
+      if (e.target === boardRef.current) {
         e.preventDefault();
-        // Cancel any single-finger pointer drag in progress
-        dragRef.current = null;
-
-        const t1 = e.touches[0];
-        const t2 = e.touches[1];
-        const dist = getTouchDist(t1, t2);
-        const angle = getTouchAngle(t1, t2);
-        const midX = (t1.clientX + t2.clientX) / 2;
-        const midY = (t1.clientY + t2.clientY) / 2;
-
-        const s = storeRef.current;
-        const selectedId = s.selectedId;
-
-        // If a piece is selected (lollipop visible), two-finger gesture rotates it
-        if (selectedId) {
-          const entities = s.getEntities();
-          const entity = entities.find((en) => en.id === selectedId);
-          if (entity) {
-            pinchRef.current = {
-              mode: "rotate",
-              initialDist: dist,
-              initialZoom: zoomRef.current,
-              initialAngle: angle,
-              initialRotation: entity.rotation,
-              initialMidX: midX,
-              initialMidY: midY,
-              initialPanX: panXRef.current,
-              initialPanY: panYRef.current,
-              targetId: selectedId,
-            };
-            return;
-          }
-        }
-
-        // No piece selected: pinch to zoom/pan
-        pinchRef.current = {
-          mode: "zoom",
-          initialDist: dist,
-          initialZoom: zoomRef.current,
-          initialAngle: angle,
-          initialRotation: 0,
-          initialMidX: midX,
-          initialMidY: midY,
-          initialPanX: panXRef.current,
-          initialPanY: panYRef.current,
-          targetId: null,
+        boardRef.current?.setPointerCapture(e.pointerId);
+        panDragRef.current = {
+          startX: e.clientX,
+          startY: e.clientY,
+          startPanX: panX,
+          startPanY: panY,
+          moved: false,
         };
       }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2 && pinchRef.current) {
-        e.preventDefault();
-        const t1 = e.touches[0];
-        const t2 = e.touches[1];
-        const currentDist = getTouchDist(t1, t2);
-        const currentAngle = getTouchAngle(t1, t2);
-        const currentMidX = (t1.clientX + t2.clientX) / 2;
-        const currentMidY = (t1.clientY + t2.clientY) / 2;
-
-        if (pinchRef.current.mode === "zoom") {
-          const scaleFactor = currentDist / pinchRef.current.initialDist;
-          const newZoom = Math.min(5, Math.max(0.25, pinchRef.current.initialZoom * scaleFactor));
-          setZoom(newZoom);
-
-          // Pan so the midpoint stays stable
-          const midDx = currentMidX - pinchRef.current.initialMidX;
-          const midDy = currentMidY - pinchRef.current.initialMidY;
-          setPanX(pinchRef.current.initialPanX + midDx);
-          setPanY(pinchRef.current.initialPanY + midDy);
-        } else if (pinchRef.current.mode === "rotate" && pinchRef.current.targetId) {
-          const deltaAngle = ((currentAngle - pinchRef.current.initialAngle) * 180) / Math.PI;
-          let newRotation = pinchRef.current.initialRotation + deltaAngle;
-          newRotation = ((newRotation % 360) + 360) % 360;
-          storeRef.current.rotatePiece(pinchRef.current.targetId, newRotation);
-        }
-      }
-    };
-
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (pinchRef.current && e.touches.length < 2) {
-        if (pinchRef.current.mode === "rotate" && pinchRef.current.targetId) {
-          const s = storeRef.current;
-          const entities = s.getEntities();
-          const entity = entities.find((en) => en.id === pinchRef.current!.targetId);
-          if (entity) {
-            const nearest90 = Math.round(entity.rotation / 90) * 90;
-            const diff = Math.abs(entity.rotation - nearest90);
-            if (diff <= 10) {
-              s.rotatePiece(pinchRef.current.targetId, nearest90 % 360);
-            }
-          }
-          s.trySnap(pinchRef.current.targetId);
-        }
-        pinchRef.current = null;
-      }
-    };
-
-    board.addEventListener("touchstart", handleTouchStart, { passive: false });
-    board.addEventListener("touchmove", handleTouchMove, { passive: false });
-    board.addEventListener("touchend", handleTouchEnd);
-    board.addEventListener("touchcancel", handleTouchEnd);
-
-    return () => {
-      board.removeEventListener("touchstart", handleTouchStart);
-      board.removeEventListener("touchmove", handleTouchMove);
-      board.removeEventListener("touchend", handleTouchEnd);
-      board.removeEventListener("touchcancel", handleTouchEnd);
-    };
-  }, []); // No deps: all mutable values accessed via refs
+    },
+    [panX, panY]
+  );
 
   // Mouse wheel zoom
   useEffect(() => {
@@ -388,14 +275,12 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
 
     board.addEventListener("wheel", handleWheel, { passive: false });
     return () => board.removeEventListener("wheel", handleWheel);
-  }, []); // No deps: uses refs
+  }, []);
 
   const entities = store.getEntities();
   const sortedEntities = [...entities].sort((a, b) => {
-    // Selected entity always on top
     if (a.id === store.selectedId) return 1;
     if (b.id === store.selectedId) return -1;
-    // Larger groups behind, single pieces on top
     const aCount = a.kind === "group" ? a.pieceIds.length : 1;
     const bCount = b.kind === "group" ? b.pieceIds.length : 1;
     if (aCount !== bCount) return bCount - aCount;
@@ -431,10 +316,11 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         background: "linear-gradient(135deg, #2c3e50 0%, #3498db 50%, #2c3e50 100%)",
         userSelect: "none",
         touchAction: "none",
+        cursor: panDragRef.current ? "grabbing" : "default",
       }}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerDown={handleBoardClick}
+      onPointerDown={handleBoardPointerDown}
     >
       {loading && (
         <div
@@ -543,7 +429,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         </div>
       )}
 
-      {/* Zoom controls - positioned top-left for reliable mobile visibility */}
+      {/* Zoom controls */}
       {store.imageLoaded && !store.completed && (
         <div
           style={{
