@@ -22,6 +22,21 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+
+  // Zoom/pan state
+  const [zoom, setZoom] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+
+  // Refs for wheel handler (avoids re-registering listener on every zoom/pan change)
+  const zoomRef = useRef(1);
+  const panXRef = useRef(0);
+  const panYRef = useRef(0);
+  zoomRef.current = zoom;
+  panXRef.current = panX;
+  panYRef.current = panY;
+
+  // Piece drag/rotate
   const dragRef = useRef<{
     id: string;
     startX: number;
@@ -30,6 +45,15 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
     startRotation: number;
     centerX: number;
     centerY: number;
+  } | null>(null);
+
+  // Background pan
+  const panDragRef = useRef<{
+    startX: number;
+    startY: number;
+    startPanX: number;
+    startPanY: number;
+    moved: boolean;
   } | null>(null);
 
   // Measure board
@@ -69,22 +93,31 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
     return () => clearInterval(id);
   }, [store.imageLoaded, paused, store.completed]);
 
+  // Convert screen coordinates to board coordinates (accounting for zoom/pan)
+  const screenToBoard = useCallback(
+    (clientX: number, clientY: number): [number, number] => {
+      return [(clientX - panX) / zoom, (clientY - panY) / zoom];
+    },
+    [zoom, panX, panY]
+  );
+
   const handleDragStart = useCallback(
     (id: string, e: React.PointerEvent) => {
       if (paused) return;
       e.preventDefault();
       boardRef.current?.setPointerCapture(e.pointerId);
+      const [bx, by] = screenToBoard(e.clientX, e.clientY);
       dragRef.current = {
         id,
-        startX: e.clientX,
-        startY: e.clientY,
+        startX: bx,
+        startY: by,
         mode: "drag",
         startRotation: 0,
         centerX: 0,
         centerY: 0,
       };
     },
-    [paused]
+    [paused, screenToBoard]
   );
 
   const handleRotateStart = useCallback(
@@ -97,32 +130,47 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
       const entity = entities.find((en) => en.id === id);
       if (!entity) return;
 
+      const [bx, by] = screenToBoard(e.clientX, e.clientY);
+
       dragRef.current = {
         id,
-        startX: e.clientX,
-        startY: e.clientY,
+        startX: bx,
+        startY: by,
         mode: "rotate",
         startRotation: entity.rotation,
         centerX: entity.x,
         centerY: entity.y,
       };
     },
-    [store, paused]
+    [store, paused, screenToBoard]
   );
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
+      // Background pan
+      if (panDragRef.current) {
+        const dx = e.clientX - panDragRef.current.startX;
+        const dy = e.clientY - panDragRef.current.startY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          panDragRef.current.moved = true;
+        }
+        setPanX(panDragRef.current.startPanX + dx);
+        setPanY(panDragRef.current.startPanY + dy);
+        return;
+      }
+
+      // Piece drag/rotate
       if (!dragRef.current) return;
       const { id, mode } = dragRef.current;
 
       if (mode === "drag") {
-        const dx = e.clientX - dragRef.current.startX;
-        const dy = e.clientY - dragRef.current.startY;
-        dragRef.current.startX = e.clientX;
-        dragRef.current.startY = e.clientY;
+        const [bx, by] = screenToBoard(e.clientX, e.clientY);
+        const dx = bx - dragRef.current.startX;
+        const dy = by - dragRef.current.startY;
+        dragRef.current.startX = bx;
+        dragRef.current.startY = by;
         store.movePiece(id, dx, dy);
       } else if (mode === "rotate") {
-        // Compute angle from center of piece to current pointer
         const entities = store.getEntities();
         const entity = entities.find((en) => en.id === id);
         if (!entity) return;
@@ -130,64 +178,109 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         const cx = entity.x;
         const cy = entity.y;
 
+        const [bx, by] = screenToBoard(e.clientX, e.clientY);
         const startAngle = Math.atan2(
           dragRef.current.startY - cy,
           dragRef.current.startX - cx
         );
-        const currentAngle = Math.atan2(
-          e.clientY - cy,
-          e.clientX - cx
-        );
+        const currentAngle = Math.atan2(by - cy, bx - cx);
         const deltaAngle =
           ((currentAngle - startAngle) * 180) / Math.PI;
 
         let newRotation = dragRef.current.startRotation + deltaAngle;
-        // Normalize to 0-360
         newRotation = ((newRotation % 360) + 360) % 360;
         store.rotatePiece(id, newRotation);
       }
     },
-    [store]
+    [store, screenToBoard]
   );
 
-  const handlePointerUp = useCallback(() => {
-    if (dragRef.current) {
-      const { id, mode } = dragRef.current;
-
-      if (mode === "rotate") {
-        // Snap rotation to nearest 90-degree angle if close
-        const entities = store.getEntities();
-        const entity = entities.find((en) => en.id === id);
-        if (entity) {
-          const nearest90 = Math.round(entity.rotation / 90) * 90;
-          const diff = Math.abs(entity.rotation - nearest90);
-          if (diff <= 10) {
-            store.rotatePiece(id, nearest90 % 360);
-          }
+  const handlePointerUp = useCallback(
+    (_e: React.PointerEvent) => {
+      // End background pan
+      if (panDragRef.current) {
+        // If barely moved, treat as a click to deselect
+        if (!panDragRef.current.moved) {
+          store.select(null);
         }
+        panDragRef.current = null;
+        return;
       }
 
-      store.trySnap(id);
-      dragRef.current = null;
-    }
-  }, [store]);
+      // End piece drag/rotate
+      if (dragRef.current) {
+        const { id, mode } = dragRef.current;
 
-  const handleBoardClick = useCallback(
-    (e: React.PointerEvent) => {
-      // Deselect if clicking on empty space
-      if (e.target === boardRef.current) {
-        store.select(null);
+        if (mode === "rotate") {
+          const entities = store.getEntities();
+          const entity = entities.find((en) => en.id === id);
+          if (entity) {
+            const nearest90 = Math.round(entity.rotation / 90) * 90;
+            const diff = Math.abs(entity.rotation - nearest90);
+            if (diff <= 10) {
+              store.rotatePiece(id, nearest90 % 360);
+            }
+          }
+        }
+
+        store.trySnap(id);
+        dragRef.current = null;
       }
     },
     [store]
   );
 
+  const handleBoardPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      // Only start panning when clicking on the board background itself
+      if (e.target === boardRef.current) {
+        e.preventDefault();
+        boardRef.current?.setPointerCapture(e.pointerId);
+        panDragRef.current = {
+          startX: e.clientX,
+          startY: e.clientY,
+          startPanX: panX,
+          startPanY: panY,
+          moved: false,
+        };
+      }
+    },
+    [panX, panY]
+  );
+
+  // Mouse wheel zoom
+  useEffect(() => {
+    const board = boardRef.current;
+    if (!board) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = -e.deltaY * 0.001;
+      const curZoom = zoomRef.current;
+      const newZoom = Math.min(5, Math.max(0.25, curZoom * (1 + delta)));
+
+      // Zoom toward cursor position
+      const rect = board.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const scale = newZoom / curZoom;
+      const newPanX = mouseX - scale * (mouseX - panXRef.current);
+      const newPanY = mouseY - scale * (mouseY - panYRef.current);
+
+      setZoom(newZoom);
+      setPanX(newPanX);
+      setPanY(newPanY);
+    };
+
+    board.addEventListener("wheel", handleWheel, { passive: false });
+    return () => board.removeEventListener("wheel", handleWheel);
+  }, []);
+
   const entities = store.getEntities();
   const sortedEntities = [...entities].sort((a, b) => {
-    // Selected entity always on top
     if (a.id === store.selectedId) return 1;
     if (b.id === store.selectedId) return -1;
-    // Larger groups behind, single pieces on top
     const aCount = a.kind === "group" ? a.pieceIds.length : 1;
     const bCount = b.kind === "group" ? b.pieceIds.length : 1;
     if (aCount !== bCount) return bCount - aCount;
@@ -223,10 +316,11 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         background: "linear-gradient(135deg, #2c3e50 0%, #3498db 50%, #2c3e50 100%)",
         userSelect: "none",
         touchAction: "none",
+        cursor: panDragRef.current ? "grabbing" : "default",
       }}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerDown={handleBoardClick}
+      onPointerDown={handleBoardPointerDown}
     >
       {loading && (
         <div
@@ -257,21 +351,33 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         </div>
       )}
 
-      {store.imageLoaded &&
-        store.imgRef.current &&
-        sortedEntities.map((entity) => (
-          <PuzzlePieceView
-            key={entity.id}
-            piece={entity.kind === "piece" ? entity : undefined}
-            group={entity.kind === "group" ? entity : undefined}
-            image={store.imgRef.current!}
-            scale={store.scaleRef.current}
-            isSelected={store.selectedId === entity.id}
-            onSelect={store.select}
-            onDragStart={handleDragStart}
-            onRotateStart={handleRotateStart}
-          />
-        ))}
+      {/* Zoomable/pannable container for puzzle pieces */}
+      {store.imageLoaded && store.imgRef.current && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            transformOrigin: "0 0",
+            transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
+            willChange: "transform",
+          }}
+        >
+          {sortedEntities.map((entity) => (
+            <PuzzlePieceView
+              key={entity.id}
+              piece={entity.kind === "piece" ? entity : undefined}
+              group={entity.kind === "group" ? entity : undefined}
+              image={store.imgRef.current!}
+              scale={store.scaleRef.current}
+              isSelected={store.selectedId === entity.id}
+              onSelect={store.select}
+              onDragStart={handleDragStart}
+              onRotateStart={handleRotateStart}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Timer and pause/play button */}
       {store.imageLoaded && !store.completed && (
@@ -320,6 +426,103 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
           >
             {paused ? "\u25B6" : "\u275A\u275A"}
           </button>
+        </div>
+      )}
+
+      {/* Zoom controls */}
+      {store.imageLoaded && !store.completed && (
+        <div
+          style={{
+            position: "absolute",
+            top: 16,
+            left: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            zIndex: 100000,
+            fontFamily: "sans-serif",
+          }}
+        >
+          <button
+            onClick={() => {
+              const newZoom = Math.min(5, zoom * 1.3);
+              const cx = boardSize.width / 2;
+              const cy = boardSize.height / 2;
+              const scale = newZoom / zoom;
+              setPanX(cx - scale * (cx - panX));
+              setPanY(cy - scale * (cy - panY));
+              setZoom(newZoom);
+            }}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 10,
+              border: "none",
+              background: "rgba(0,0,0,0.6)",
+              color: "white",
+              fontSize: 24,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title="Zoom in"
+          >
+            +
+          </button>
+          <button
+            onClick={() => {
+              const newZoom = Math.max(0.25, zoom / 1.3);
+              const cx = boardSize.width / 2;
+              const cy = boardSize.height / 2;
+              const scale = newZoom / zoom;
+              setPanX(cx - scale * (cx - panX));
+              setPanY(cy - scale * (cy - panY));
+              setZoom(newZoom);
+            }}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 10,
+              border: "none",
+              background: "rgba(0,0,0,0.6)",
+              color: "white",
+              fontSize: 24,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title="Zoom out"
+          >
+            −
+          </button>
+          {zoom !== 1 && (
+            <button
+              onClick={() => {
+                setZoom(1);
+                setPanX(0);
+                setPanY(0);
+              }}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 10,
+                border: "none",
+                background: "rgba(0,0,0,0.6)",
+                color: "white",
+                fontSize: 11,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 700,
+              }}
+              title="Reset zoom"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+          )}
         </div>
       )}
 
