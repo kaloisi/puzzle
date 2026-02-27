@@ -280,6 +280,22 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
+      const st = storeRef.current;
+
+      // When exactly one piece/group is selected, scroll rotates it
+      if (st.selectedIds.length === 1) {
+        const id = st.selectedIds[0];
+        const entities = st.getEntities();
+        const entity = entities.find((en) => en.id === id);
+        if (entity) {
+          const delta = e.deltaY > 0 ? 15 : -15;
+          let newRotation = (entity.rotation + delta) % 360;
+          if (newRotation < 0) newRotation += 360;
+          st.rotatePiece(id, newRotation);
+          return;
+        }
+      }
+
       const delta = -e.deltaY * 0.001;
       const curZoom = zoomRef.current;
       const newZoom = Math.min(5, Math.max(0.25, curZoom * (1 + delta)));
