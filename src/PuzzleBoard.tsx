@@ -288,7 +288,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
       // When exactly one piece/group is selected, scroll rotates it
       if (st.selectedIds.length === 1) {
         const now = Date.now();
-        if (now - lastScrollRotateRef.current < 500) return;
+        if (now - lastScrollRotateRef.current < 250) return;
         lastScrollRotateRef.current = now;
 
         const id = st.selectedIds[0];
