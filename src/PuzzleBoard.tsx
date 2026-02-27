@@ -273,9 +273,6 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
     []
   );
 
-  // Track scroll events for snap-to-45 behavior
-  const scrollCountRef = useRef(0);
-
   // Mouse wheel zoom
   useEffect(() => {
     const board = boardRef.current;
@@ -291,21 +288,10 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         const entities = st.getEntities();
         const entity = entities.find((en) => en.id === id);
         if (entity) {
-          scrollCountRef.current++;
-          let newRotation: number;
-
-          if (scrollCountRef.current >= 10) {
-            // Snap to nearest 45-degree increment in the scroll direction
-            scrollCountRef.current = 0;
-            const nearest45 = e.deltaY > 0
-              ? (Math.floor(entity.rotation / 45) + 1) * 45
-              : (Math.ceil(entity.rotation / 45) - 1) * 45;
-            newRotation = ((nearest45 % 360) + 360) % 360;
-          } else {
-            const delta = e.deltaY > 0 ? 5 : -5;
-            newRotation = ((entity.rotation + delta) % 360 + 360) % 360;
-          }
-
+          const nearest45 = e.deltaY > 0
+            ? (Math.floor(entity.rotation / 45) + 1) * 45
+            : (Math.ceil(entity.rotation / 45) - 1) * 45;
+          const newRotation = ((nearest45 % 360) + 360) % 360;
           st.rotatePiece(id, newRotation);
           return;
         }
