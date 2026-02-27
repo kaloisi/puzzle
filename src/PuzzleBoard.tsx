@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PuzzlePieceView } from "./PuzzlePiece";
 import { usePuzzleStore } from "./usePuzzleStore";
 import type { Difficulty } from "./StartScreen";
+import type { PuzzlePiece as PuzzlePieceType, MergedGroup } from "./types";
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -31,13 +32,17 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
 
-  // Refs for wheel handler (avoids re-registering listener on every zoom/pan change)
+  // Refs for stable access in event handlers (avoids re-creating callbacks)
   const zoomRef = useRef(1);
   const panXRef = useRef(0);
   const panYRef = useRef(0);
+  const storeRef = useRef(store);
+  const pausedRef = useRef(paused);
   zoomRef.current = zoom;
   panXRef.current = panX;
   panYRef.current = panY;
+  storeRef.current = store;
+  pausedRef.current = paused;
 
   // Piece drag/rotate
   const dragRef = useRef<{
@@ -99,14 +104,14 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
   // Convert screen coordinates to board coordinates (accounting for zoom/pan)
   const screenToBoard = useCallback(
     (clientX: number, clientY: number): [number, number] => {
-      return [(clientX - panX) / zoom, (clientY - panY) / zoom];
+      return [(clientX - panXRef.current) / zoomRef.current, (clientY - panYRef.current) / zoomRef.current];
     },
-    [zoom, panX, panY]
+    []
   );
 
   const handleDragStart = useCallback(
     (id: string, e: React.PointerEvent) => {
-      if (paused) return;
+      if (pausedRef.current) return;
       e.preventDefault();
       boardRef.current?.setPointerCapture(e.pointerId);
       const [bx, by] = screenToBoard(e.clientX, e.clientY);
@@ -120,7 +125,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         centerY: 0,
       };
     },
-    [paused, screenToBoard]
+    [screenToBoard]
   );
 
   // Whether multi-select is active (more than one piece selected)
@@ -128,11 +133,11 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
 
   const handleRotateStart = useCallback(
     (id: string, e: React.PointerEvent) => {
-      if (paused) return;
+      if (pausedRef.current) return;
       e.preventDefault();
       boardRef.current?.setPointerCapture(e.pointerId);
 
-      const entities = store.getEntities();
+      const entities = storeRef.current.getEntities();
       const entity = entities.find((en) => en.id === id);
       if (!entity) return;
 
@@ -148,7 +153,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         centerY: entity.y,
       };
     },
-    [store, paused, screenToBoard]
+    [screenToBoard]
   );
 
   const handlePointerMove = useCallback(
@@ -168,6 +173,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
       // Piece drag/rotate
       if (!dragRef.current) return;
       const { id, mode } = dragRef.current;
+      const st = storeRef.current;
 
       if (mode === "drag") {
         const [bx, by] = screenToBoard(e.clientX, e.clientY);
@@ -176,13 +182,13 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         dragRef.current.startX = bx;
         dragRef.current.startY = by;
         // Move all selected pieces together if dragging one of the selected set
-        if (store.selectedIds.length > 1 && store.selectedIds.includes(id)) {
-          store.moveSelected(dx, dy);
+        if (st.selectedIds.length > 1 && st.selectedIds.includes(id)) {
+          st.moveSelected(dx, dy);
         } else {
-          store.movePiece(id, dx, dy);
+          st.movePiece(id, dx, dy);
         }
       } else if (mode === "rotate") {
-        const entities = store.getEntities();
+        const entities = st.getEntities();
         const entity = entities.find((en) => en.id === id);
         if (!entity) return;
 
@@ -200,10 +206,10 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
 
         let newRotation = dragRef.current.startRotation + deltaAngle;
         newRotation = ((newRotation % 360) + 360) % 360;
-        store.rotatePiece(id, newRotation);
+        st.rotatePiece(id, newRotation);
       }
     },
-    [store, screenToBoard]
+    [screenToBoard]
   );
 
   const handlePointerUp = useCallback(
@@ -212,7 +218,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
       if (panDragRef.current) {
         // If barely moved, treat as a click to deselect
         if (!panDragRef.current.moved) {
-          store.select(null);
+          storeRef.current.select(null);
         }
         panDragRef.current = null;
         return;
@@ -221,31 +227,32 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
       // End piece drag/rotate
       if (dragRef.current) {
         const { id, mode } = dragRef.current;
+        const st = storeRef.current;
 
         if (mode === "rotate") {
-          const entities = store.getEntities();
+          const entities = st.getEntities();
           const entity = entities.find((en) => en.id === id);
           if (entity) {
             const nearest90 = Math.round(entity.rotation / 90) * 90;
             const diff = Math.abs(entity.rotation - nearest90);
             if (diff <= 10) {
-              store.rotatePiece(id, nearest90 % 360);
+              st.rotatePiece(id, nearest90 % 360);
             }
           }
         }
 
         // Snap all selected pieces if multi-dragging, otherwise just the dragged one
-        if (store.selectedIds.length > 1 && store.selectedIds.includes(id)) {
-          for (const sid of store.selectedIds) {
-            store.trySnap(sid);
+        if (st.selectedIds.length > 1 && st.selectedIds.includes(id)) {
+          for (const sid of st.selectedIds) {
+            st.trySnap(sid);
           }
         } else {
-          store.trySnap(id);
+          st.trySnap(id);
         }
         dragRef.current = null;
       }
     },
-    [store]
+    []
   );
 
   const handleBoardPointerDown = useCallback(
@@ -257,13 +264,13 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         panDragRef.current = {
           startX: e.clientX,
           startY: e.clientY,
-          startPanX: panX,
-          startPanY: panY,
+          startPanX: panXRef.current,
+          startPanY: panYRef.current,
           moved: false,
         };
       }
     },
-    [panX, panY]
+    []
   );
 
   // Mouse wheel zoom
@@ -295,18 +302,40 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
     return () => board.removeEventListener("wheel", handleWheel);
   }, []);
 
-  const entities = store.getEntities();
-  const selectedSet = new Set(store.selectedIds);
-  const sortedEntities = [...entities].sort((a, b) => {
-    const aSelected = selectedSet.has(a.id);
-    const bSelected = selectedSet.has(b.id);
-    if (aSelected && !bSelected) return 1;
-    if (!aSelected && bSelected) return -1;
-    const aCount = a.kind === "group" ? a.pieceIds.length : 1;
-    const bCount = b.kind === "group" ? b.pieceIds.length : 1;
-    if (aCount !== bCount) return bCount - aCount;
-    return a.zIndex - b.zIndex;
-  });
+  // Memoized entity list: preserves original piece/group references from the store
+  // so React.memo on PuzzlePieceView can skip re-renders for unchanged pieces.
+  const selectedSet = useMemo(() => new Set(store.selectedIds), [store.selectedIds]);
+
+  const sortedEntities = useMemo(() => {
+    const groupedPieceIds = new Set(store.groups.flatMap((g) => g.pieceIds));
+    const items: Array<{
+      id: string;
+      piece: PuzzlePieceType | undefined;
+      group: MergedGroup | undefined;
+      zIndex: number;
+      pieceCount: number;
+    }> = [];
+
+    for (const p of store.pieces) {
+      if (!groupedPieceIds.has(p.id)) {
+        items.push({ id: p.id, piece: p, group: undefined, zIndex: p.zIndex, pieceCount: 1 });
+      }
+    }
+    for (const g of store.groups) {
+      items.push({ id: g.id, piece: undefined, group: g, zIndex: g.zIndex, pieceCount: g.pieceIds.length });
+    }
+
+    items.sort((a, b) => {
+      const aSelected = selectedSet.has(a.id);
+      const bSelected = selectedSet.has(b.id);
+      if (aSelected && !bSelected) return 1;
+      if (!aSelected && bSelected) return -1;
+      if (a.pieceCount !== b.pieceCount) return b.pieceCount - a.pieceCount;
+      return a.zIndex - b.zIndex;
+    });
+
+    return items;
+  }, [store.pieces, store.groups, selectedSet]);
 
   if (error) {
     return (
@@ -384,15 +413,15 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
             willChange: "transform",
           }}
         >
-          {sortedEntities.map((entity) => (
+          {sortedEntities.map((item) => (
             <PuzzlePieceView
-              key={entity.id}
-              piece={entity.kind === "piece" ? entity : undefined}
-              group={entity.kind === "group" ? entity : undefined}
+              key={item.id}
+              piece={item.piece}
+              group={item.group}
               image={store.imgRef.current!}
               scale={store.scaleRef.current}
-              isSelected={selectedSet.has(entity.id)}
-              multiSelected={multiSelected && selectedSet.has(entity.id)}
+              isSelected={selectedSet.has(item.id)}
+              multiSelected={multiSelected && selectedSet.has(item.id)}
               onSelect={store.select}
               onDragStart={handleDragStart}
               onRotateStart={handleRotateStart}
