@@ -273,6 +273,9 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
     []
   );
 
+  // Throttle scroll-rotate to once per 500ms
+  const lastScrollRotateRef = useRef(0);
+
   // Mouse wheel zoom
   useEffect(() => {
     const board = boardRef.current;
@@ -284,6 +287,10 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
 
       // When exactly one piece/group is selected, scroll rotates it
       if (st.selectedIds.length === 1) {
+        const now = Date.now();
+        if (now - lastScrollRotateRef.current < 500) return;
+        lastScrollRotateRef.current = now;
+
         const id = st.selectedIds[0];
         const entities = st.getEntities();
         const entity = entities.find((en) => en.id === id);
