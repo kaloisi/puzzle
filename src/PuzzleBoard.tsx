@@ -288,7 +288,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         const entities = st.getEntities();
         const entity = entities.find((en) => en.id === id);
         if (entity) {
-          const delta = e.deltaY > 0 ? 15 : -15;
+          const delta = e.deltaY > 0 ? 5 : -5;
           let newRotation = (entity.rotation + delta) % 360;
           if (newRotation < 0) newRotation += 360;
           st.rotatePiece(id, newRotation);
