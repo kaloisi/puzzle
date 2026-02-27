@@ -13,22 +13,23 @@ const SNAP_ANGLE = 15;
 interface PuzzleState {
   pieces: PuzzlePiece[];
   groups: MergedGroup[];
-  selectedId: string | null;
+  selectedIds: string[];
   imageLoaded: boolean;
   completed: boolean;
 }
 
 type Action =
   | { type: "INIT"; pieces: PuzzlePiece[] }
-  | { type: "SELECT"; id: string | null }
+  | { type: "SELECT"; id: string | null; shiftKey?: boolean }
   | { type: "MOVE"; id: string; dx: number; dy: number }
+  | { type: "MOVE_SELECTED"; dx: number; dy: number }
   | { type: "ROTATE"; id: string; angle: number }
   | { type: "TRY_SNAP"; id: string; scale: number };
 
 const initialState: PuzzleState = {
   pieces: [],
   groups: [],
-  selectedId: null,
+  selectedIds: [],
   imageLoaded: false,
   completed: false,
 };
@@ -44,8 +45,20 @@ function reducer(state: PuzzleState, action: Action): PuzzleState {
       };
     }
 
-    case "SELECT":
-      return { ...state, selectedId: action.id };
+    case "SELECT": {
+      if (action.id === null) {
+        return { ...state, selectedIds: [] };
+      }
+      if (action.shiftKey) {
+        // Toggle: add if not present, remove if already selected
+        const idx = state.selectedIds.indexOf(action.id);
+        if (idx >= 0) {
+          return { ...state, selectedIds: state.selectedIds.filter((sid) => sid !== action.id) };
+        }
+        return { ...state, selectedIds: [...state.selectedIds, action.id] };
+      }
+      return { ...state, selectedIds: [action.id] };
+    }
 
     case "MOVE":
       return {
@@ -61,6 +74,23 @@ function reducer(state: PuzzleState, action: Action): PuzzleState {
             : g
         ),
       };
+
+    case "MOVE_SELECTED": {
+      const ids = new Set(state.selectedIds);
+      return {
+        ...state,
+        pieces: state.pieces.map((p) =>
+          ids.has(p.id)
+            ? { ...p, x: p.x + action.dx, y: p.y + action.dy }
+            : p
+        ),
+        groups: state.groups.map((g) =>
+          ids.has(g.id)
+            ? { ...g, x: g.x + action.dx, y: g.y + action.dy }
+            : g
+        ),
+      };
+    }
 
     case "ROTATE":
       return {
@@ -126,12 +156,16 @@ export function usePuzzleStore() {
     return [...singles, ...grouped];
   }, [state.pieces, state.groups]);
 
-  const select = useCallback((id: string | null) => {
-    dispatch({ type: "SELECT", id });
+  const select = useCallback((id: string | null, shiftKey?: boolean) => {
+    dispatch({ type: "SELECT", id, shiftKey });
   }, []);
 
   const movePiece = useCallback((id: string, dx: number, dy: number) => {
     dispatch({ type: "MOVE", id, dx, dy });
+  }, []);
+
+  const moveSelected = useCallback((dx: number, dy: number) => {
+    dispatch({ type: "MOVE_SELECTED", dx, dy });
   }, []);
 
   const rotatePiece = useCallback((id: string, angle: number) => {
@@ -148,7 +182,7 @@ export function usePuzzleStore() {
   return {
     pieces: state.pieces,
     groups: state.groups,
-    selectedId: state.selectedId,
+    selectedIds: state.selectedIds,
     imageLoaded: state.imageLoaded,
     completed: state.completed,
     imgRef,
@@ -157,6 +191,7 @@ export function usePuzzleStore() {
     getEntities,
     select,
     movePiece,
+    moveSelected,
     rotatePiece,
     trySnap,
   };
@@ -303,7 +338,9 @@ function performSnap(
     const newState: PuzzleState = {
       ...state,
       groups: newGroups,
-      selectedId: newGroup.id,
+      selectedIds: state.selectedIds.includes(active.entityId)
+        ? [...state.selectedIds.filter((sid) => sid !== active.entityId && sid !== neighbor.entityId), newGroup.id]
+        : state.selectedIds.filter((sid) => sid !== neighbor.entityId),
       completed: isComplete,
     };
 

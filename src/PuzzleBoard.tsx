@@ -123,6 +123,9 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
     [paused, screenToBoard]
   );
 
+  // Whether multi-select is active (more than one piece selected)
+  const multiSelected = store.selectedIds.length > 1;
+
   const handleRotateStart = useCallback(
     (id: string, e: React.PointerEvent) => {
       if (paused) return;
@@ -172,7 +175,12 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         const dy = by - dragRef.current.startY;
         dragRef.current.startX = bx;
         dragRef.current.startY = by;
-        store.movePiece(id, dx, dy);
+        // Move all selected pieces together if dragging one of the selected set
+        if (store.selectedIds.length > 1 && store.selectedIds.includes(id)) {
+          store.moveSelected(dx, dy);
+        } else {
+          store.movePiece(id, dx, dy);
+        }
       } else if (mode === "rotate") {
         const entities = store.getEntities();
         const entity = entities.find((en) => en.id === id);
@@ -226,7 +234,14 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
           }
         }
 
-        store.trySnap(id);
+        // Snap all selected pieces if multi-dragging, otherwise just the dragged one
+        if (store.selectedIds.length > 1 && store.selectedIds.includes(id)) {
+          for (const sid of store.selectedIds) {
+            store.trySnap(sid);
+          }
+        } else {
+          store.trySnap(id);
+        }
         dragRef.current = null;
       }
     },
@@ -281,9 +296,12 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
   }, []);
 
   const entities = store.getEntities();
+  const selectedSet = new Set(store.selectedIds);
   const sortedEntities = [...entities].sort((a, b) => {
-    if (a.id === store.selectedId) return 1;
-    if (b.id === store.selectedId) return -1;
+    const aSelected = selectedSet.has(a.id);
+    const bSelected = selectedSet.has(b.id);
+    if (aSelected && !bSelected) return 1;
+    if (!aSelected && bSelected) return -1;
     const aCount = a.kind === "group" ? a.pieceIds.length : 1;
     const bCount = b.kind === "group" ? b.pieceIds.length : 1;
     if (aCount !== bCount) return bCount - aCount;
@@ -373,7 +391,8 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
               group={entity.kind === "group" ? entity : undefined}
               image={store.imgRef.current!}
               scale={store.scaleRef.current}
-              isSelected={store.selectedId === entity.id}
+              isSelected={selectedSet.has(entity.id)}
+              multiSelected={multiSelected && selectedSet.has(entity.id)}
               onSelect={store.select}
               onDragStart={handleDragStart}
               onRotateStart={handleRotateStart}
