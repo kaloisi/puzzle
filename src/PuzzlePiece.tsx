@@ -8,7 +8,8 @@ interface Props {
   image: HTMLImageElement;
   scale: number;
   isSelected: boolean;
-  onSelect: (id: string) => void;
+  multiSelected?: boolean;
+  onSelect: (id: string, shiftKey?: boolean) => void;
   onDragStart: (id: string, e: React.PointerEvent) => void;
   onRotateStart: (id: string, e: React.PointerEvent) => void;
 }
@@ -45,7 +46,7 @@ function translateScalePath(path: string, oX: number, oY: number, scale: number)
 }
 
 export const PuzzlePieceView: React.FC<Props> = React.memo(
-  ({ piece, group, image, scale, isSelected, onSelect, onDragStart, onRotateStart }) => {
+  ({ piece, group, image, scale, isSelected, multiSelected, onSelect, onDragStart, onRotateStart }) => {
     const entity = piece || group;
     if (!entity) return null;
 
@@ -96,7 +97,7 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
     const handlePointerDown = useCallback(
       (e: React.PointerEvent) => {
         e.stopPropagation();
-        onSelect(id);
+        onSelect(id, e.shiftKey);
         onDragStart(id, e);
       },
       [id, onSelect, onDragStart]
@@ -124,8 +125,7 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
           cursor: isSelected ? "grabbing" : "grab",
           filter: isSelected
             ? "drop-shadow(0px 14px 20px rgba(0,0,0,0.55))"
-            : "drop-shadow(0px 4px 6px rgba(0,0,0,0.3))",
-          transition: isSelected ? "filter 0.15s" : "filter 0.3s",
+            : undefined,
         }}
         onPointerDown={handlePointerDown}
       >
@@ -176,26 +176,31 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
                 strokeDasharray="4 3"
                 opacity={0.7}
               />
-              {/* Stick from top edge upward */}
-              <line
-                x1={centerOffsetX}
-                y1={-6}
-                x2={centerOffsetX}
-                y2={-36}
-                stroke="#4a90d9"
-                strokeWidth={2}
-              />
-              {/* Button at end of stick */}
-              <circle
-                cx={centerOffsetX}
-                cy={-36}
-                r={8}
-                fill="#4a90d9"
-                stroke="white"
-                strokeWidth={2}
-                style={{ cursor: "pointer" }}
-                onPointerDown={handleRotatePointerDown}
-              />
+              {/* Rotation handle: hidden when multiple pieces are selected */}
+              {!multiSelected && (
+                <>
+                  {/* Stick from top edge upward */}
+                  <line
+                    x1={centerOffsetX}
+                    y1={-6}
+                    x2={centerOffsetX}
+                    y2={-36}
+                    stroke="#4a90d9"
+                    strokeWidth={2}
+                  />
+                  {/* Button at end of stick */}
+                  <circle
+                    cx={centerOffsetX}
+                    cy={-36}
+                    r={8}
+                    fill="#4a90d9"
+                    stroke="white"
+                    strokeWidth={2}
+                    style={{ cursor: "pointer" }}
+                    onPointerDown={handleRotatePointerDown}
+                  />
+                </>
+              )}
             </g>
           )}
         </svg>
