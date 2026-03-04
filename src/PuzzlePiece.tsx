@@ -5,7 +5,6 @@ import { polygonsBBox } from "./geometry";
 interface Props {
   piece?: PuzzlePieceType;
   group?: MergedGroup;
-  image: HTMLImageElement;
   scale: number;
   isSelected: boolean;
   multiSelected?: boolean;
@@ -14,23 +13,19 @@ interface Props {
   onRotateStart: (id: string, e: React.PointerEvent) => void;
 }
 
-const PAD = 4;
-
 /**
  * Apply `x' = (x - oX) * scale`, `y' = (y - oY) * scale` to all coordinates
  * in an SVG path string (handles M, L, C, Z commands).
  */
 function translateScalePath(path: string, oX: number, oY: number, scale: number): string {
-  // Replace all numeric tokens after command letters with transformed values.
-  // SVG path coords come in x,y pairs separated by spaces/commas.
   const tokens = path.trim().split(/([MLCZmlcz]|\s*,\s*|\s+)/).filter(Boolean);
   const out: string[] = [];
-  let isX = true; // alternates between x and y for coord pairs
+  let isX = true;
 
   for (const tok of tokens) {
     if (/^[MLCZmlcz]$/i.test(tok)) {
       out.push(tok);
-      isX = true; // reset coord pairing on new command
+      isX = true;
     } else if (/^-?\d/.test(tok)) {
       const val = parseFloat(tok);
       const transformed = isX ? (val - oX) * scale : (val - oY) * scale;
@@ -46,7 +41,7 @@ function translateScalePath(path: string, oX: number, oY: number, scale: number)
 }
 
 export const PuzzlePieceView: React.FC<Props> = React.memo(
-  ({ piece, group, image, scale, isSelected, multiSelected, onSelect, onDragStart, onRotateStart }) => {
+  ({ piece, group, scale, isSelected, multiSelected, onSelect, onDragStart, onRotateStart }) => {
     const entity = piece || group;
     if (!entity) return null;
 
@@ -57,42 +52,34 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
     const boardX = entity.x;
     const boardY = entity.y;
     const rotation = entity.rotation;
-    const zIndex = entity.zIndex;
 
     const computed = useMemo(() => {
+      // Center paths on the centroid so (0,0) = centroid in local coords
+      const clipPaths = paths.map((p) =>
+        translateScalePath(p, imgCentroid[0], imgCentroid[1], scale)
+      );
+
+      // Compute bounding box for selection UI
       const bbox = polygonsBBox(polygons);
-      const oX = bbox.minX - PAD;
-      const oY = bbox.minY - PAD;
-      const w = bbox.width + PAD * 2;
-      const h = bbox.height + PAD * 2;
-
-      const svgW = w * scale;
-      const svgH = h * scale;
-
-      const clipPaths = paths.map((p) => translateScalePath(p, oX, oY, scale));
-
-      const imgT = {
-        x: -oX * scale,
-        y: -oY * scale,
-        width: image.naturalWidth * scale,
-        height: image.naturalHeight * scale,
-      };
-
-      const coX = (imgCentroid[0] - oX) * scale;
-      const coY = (imgCentroid[1] - oY) * scale;
+      const localMinX = (bbox.minX - imgCentroid[0]) * scale;
+      const localMinY = (bbox.minY - imgCentroid[1]) * scale;
+      const localW = bbox.width * scale;
+      const localH = bbox.height * scale;
 
       return {
-        svgWidth: svgW,
-        svgHeight: svgH,
         clipPaths,
-        imgTransform: imgT,
-        centerOffsetX: coX,
-        centerOffsetY: coY,
+        selX: localMinX - 6,
+        selY: localMinY - 6,
+        selW: localW + 12,
+        selH: localH + 12,
+        selTopCenterY: localMinY - 6,
       };
-    }, [polygons, paths, scale, image.naturalWidth, image.naturalHeight, imgCentroid]);
+    }, [polygons, paths, scale, imgCentroid]);
 
-    const { svgWidth, svgHeight, clipPaths, imgTransform, centerOffsetX, centerOffsetY } = computed;
+    const { clipPaths, selX, selY, selW, selH, selTopCenterY } = computed;
     const clipId = `clip-${id}`;
+    const imgOffsetX = -imgCentroid[0] * scale;
+    const imgOffsetY = -imgCentroid[1] * scale;
 
     const handlePointerDown = useCallback(
       (e: React.PointerEvent) => {
@@ -112,99 +99,76 @@ export const PuzzlePieceView: React.FC<Props> = React.memo(
     );
 
     return (
-      <div
+      <g
+        transform={`translate(${boardX}, ${boardY}) rotate(${rotation})`}
         style={{
-          position: "absolute",
-          left: boardX - centerOffsetX,
-          top: boardY - centerOffsetY,
-          width: svgWidth,
-          height: svgHeight,
-          transform: `rotate(${rotation}deg)`,
-          transformOrigin: `${centerOffsetX}px ${centerOffsetY}px`,
-          zIndex: isSelected ? zIndex + 10000 : zIndex,
           cursor: isSelected ? "grabbing" : "grab",
           filter: isSelected
             ? "drop-shadow(0px 14px 20px rgba(0,0,0,0.55))"
             : undefined,
+          pointerEvents: "auto",
         }}
         onPointerDown={handlePointerDown}
       >
-        <svg
-          width={svgWidth}
-          height={svgHeight}
-          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-          style={{ display: "block", overflow: "visible" }}
-        >
-          <defs>
-            <clipPath id={clipId}>
-              {clipPaths.map((d, i) => (
-                <path key={i} d={d} />
-              ))}
-            </clipPath>
-          </defs>
-          <g clipPath={`url(#${clipId})`}>
-            <image
-              href={image.src}
-              x={imgTransform.x}
-              y={imgTransform.y}
-              width={imgTransform.width}
-              height={imgTransform.height}
-            />
-          </g>
-          {clipPaths.map((d, i) => (
-            <path
-              key={`outline-${i}`}
-              d={d}
+        <defs>
+          <clipPath id={clipId}>
+            {clipPaths.map((d, i) => (
+              <path key={i} d={d} />
+            ))}
+          </clipPath>
+        </defs>
+        <g clipPath={`url(#${clipId})`}>
+          <use href="#puzzle-img" x={imgOffsetX} y={imgOffsetY} />
+        </g>
+        {clipPaths.map((d, i) => (
+          <path
+            key={`outline-${i}`}
+            d={d}
+            fill="none"
+            stroke="rgba(255,255,255,0.4)"
+            strokeWidth={0.5}
+          />
+        ))}
+        {isSelected && (
+          <g>
+            <rect
+              x={selX}
+              y={selY}
+              width={selW}
+              height={selH}
+              rx={16}
+              ry={16}
               fill="none"
-              stroke="rgba(255,255,255,0.4)"
-              strokeWidth={0.5}
+              stroke="#4a90d9"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              opacity={0.7}
             />
-          ))}
-          {isSelected && (
-            <g>
-              {/* Rounded rectangle around the piece */}
-              <rect
-                x={-6}
-                y={-6}
-                width={svgWidth + 12}
-                height={svgHeight + 12}
-                rx={16}
-                ry={16}
-                fill="none"
-                stroke="#4a90d9"
-                strokeWidth={1.5}
-                strokeDasharray="4 3"
-                opacity={0.7}
-              />
-              {/* Rotation handle: hidden when multiple pieces are selected */}
-              {!multiSelected && (
-                <>
-                  {/* Stick from top edge upward */}
-                  <line
-                    x1={centerOffsetX}
-                    y1={-6}
-                    x2={centerOffsetX}
-                    y2={-36}
-                    stroke="#4a90d9"
-                    strokeWidth={2}
-                  />
-                  {/* Button at end of stick */}
-                  <circle
-                    cx={centerOffsetX}
-                    cy={-36}
-                    r={8}
-                    fill="#4a90d9"
-                    stroke="white"
-                    strokeWidth={2}
-                    style={{ cursor: "pointer" }}
-                    onPointerDown={handleRotatePointerDown}
-                  />
-                </>
-              )}
-            </g>
-          )}
-        </svg>
-      </div>
+            {!multiSelected && (
+              <>
+                <line
+                  x1={0}
+                  y1={selTopCenterY}
+                  x2={0}
+                  y2={selTopCenterY - 30}
+                  stroke="#4a90d9"
+                  strokeWidth={2}
+                />
+                <circle
+                  cx={0}
+                  cy={selTopCenterY - 30}
+                  r={8}
+                  fill="#4a90d9"
+                  stroke="white"
+                  strokeWidth={2}
+                  style={{ cursor: "pointer" }}
+                  onPointerDown={handleRotatePointerDown}
+                />
+              </>
+            )}
+          </g>
+        )}
+      </g>
     );
   }
 );

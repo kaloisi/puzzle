@@ -425,7 +425,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
         </div>
       )}
 
-      {/* Zoomable/pannable container for puzzle pieces */}
+      {/* Zoomable/pannable container with a single SVG surface for all pieces */}
       {store.imageLoaded && store.imgRef.current && (
         <div
           style={{
@@ -437,20 +437,35 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ imageUrl, pieceCount, 
             willChange: "transform",
           }}
         >
-          {sortedEntities.map((item) => (
-            <PuzzlePieceView
-              key={item.id}
-              piece={item.piece}
-              group={item.group}
-              image={store.imgRef.current!}
-              scale={store.scaleRef.current}
-              isSelected={selectedSet.has(item.id)}
-              multiSelected={multiSelected && selectedSet.has(item.id)}
-              onSelect={store.select}
-              onDragStart={handleDragStart}
-              onRotateStart={handleRotateStart}
-            />
-          ))}
+          <svg
+            style={{
+              position: "absolute",
+              overflow: "visible",
+              pointerEvents: "none",
+            }}
+          >
+            <defs>
+              <image
+                id="puzzle-img"
+                href={store.imgRef.current!.src}
+                width={store.imgRef.current!.naturalWidth * store.scaleRef.current}
+                height={store.imgRef.current!.naturalHeight * store.scaleRef.current}
+              />
+            </defs>
+            {sortedEntities.map((item) => (
+              <PuzzlePieceView
+                key={item.id}
+                piece={item.piece}
+                group={item.group}
+                scale={store.scaleRef.current}
+                isSelected={selectedSet.has(item.id)}
+                multiSelected={multiSelected && selectedSet.has(item.id)}
+                onSelect={store.select}
+                onDragStart={handleDragStart}
+                onRotateStart={handleRotateStart}
+              />
+            ))}
+          </svg>
         </div>
       )}
 
