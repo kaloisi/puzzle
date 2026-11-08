@@ -1,3 +1,12 @@
+# Jigsaw Puzzle
+
+A daily painting jigsaw puzzle.
+
+- **Web app**: React + TypeScript + Vite, in `src/`. Run `npm install && npm run dev`.
+- **Native iPad app**: SwiftUI, in [`ios/`](ios/README.md). Open `ios/JigsawPuzzle.xcodeproj` in Xcode 16+.
+
+---
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
