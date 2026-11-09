@@ -14,7 +14,7 @@ struct StartScreenView: View {
 
             GeometryReader { geo in
                 ScrollView {
-                    card
+                    card(width: cardWidth(for: geo.size))
                         .frame(maxWidth: .infinity)
                         .frame(minHeight: geo.size.height)
                 }
@@ -23,7 +23,11 @@ struct StartScreenView: View {
         }
     }
 
-    private var card: some View {
+    private func cardWidth(for size: CGSize) -> CGFloat {
+        size.width > size.height ? min(760, size.width - 48) : 460
+    }
+
+    private func card(width: CGFloat) -> some View {
         VStack(spacing: 28) {
             Text("Jigsaw Puzzle")
                 .font(.system(size: 34, weight: .bold))
@@ -56,7 +60,7 @@ struct StartScreenView: View {
         }
         .padding(.horizontal, 40)
         .padding(.vertical, 36)
-        .frame(width: 460)
+        .frame(width: width)
         .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
