@@ -14,6 +14,19 @@ const routes = {
       headers: { "Content-type": "text/html" },
     });
   },
+
+  async all(request, env) {
+    const { results } = await env.DB
+      .prepare("SELECT rowid AS id, url FROM schedules")
+      .all();
+    return new Response(JSON.stringify(results), {
+      status: 200,
+      headers: {
+        "Content-type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      },
+    });
+  },
 };
 
 // Default route: proxy an image URL from D1 by id
@@ -31,7 +44,25 @@ async function defaultRoute(request, env, id) {
     return new Response("Not found " + id, { status: 404 });
   }
 
-  const upstreamResponse = await fetch(result.url, {
+  return proxyImage(request, result.url);
+}
+
+// Proxy an image URL from D1 by schedules rowid
+async function paintingRoute(request, env, rowId) {
+  const result = await env.DB
+    .prepare("SELECT url FROM schedules WHERE rowid = ?")
+    .bind(Number(rowId))
+    .first();
+
+  if (!result || !result.url) {
+    return new Response("Not found " + rowId, { status: 404 });
+  }
+
+  return proxyImage(request, result.url);
+}
+
+async function proxyImage(request, url) {
+  const upstreamResponse = await fetch(url, {
     method: request.method,
     headers: request.headers,
     body: request.method !== "GET" && request.method !== "HEAD"
@@ -59,6 +90,11 @@ export default {
 
       if (path in routes) {
         return routes[path](request, env);
+      }
+
+      const painting = path.match(/^painting\/(\d+)$/);
+      if (painting) {
+        return paintingRoute(request, env, painting[1]);
       }
 
       return defaultRoute(request, env, path);
