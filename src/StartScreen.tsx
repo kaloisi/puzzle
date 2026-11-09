@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 type Difficulty = "easy" | "normal" | "hard";
 
@@ -10,145 +10,75 @@ const DIFFICULTY_PIECES: Record<Difficulty, number> = {
 
 export type { Difficulty };
 
+interface ImageRow {
+  id: number;
+  url: string;
+}
+
 interface StartScreenProps {
-  onStart: (date: string, pieceCount: number, difficulty: Difficulty) => void;
+  imagesUrl: string;
+  onStart: (imageId: number, pieceCount: number, difficulty: Difficulty) => void;
 }
 
-function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+function thumbnailUrl(url: string): string {
+  const thumb = new URL(url);
+  thumb.searchParams.set("width", "480");
+  return thumb.toString();
 }
 
-function daysInMonth(year: number, month: number): number {
-  return new Date(year, month + 1, 0).getDate();
-}
+const ARROW_STYLE: React.CSSProperties = {
+  flex: "none",
+  background: "none",
+  border: "none",
+  fontSize: 24,
+  padding: "4px 8px",
+  borderRadius: 6,
+};
 
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
-const DAY_HEADERS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-
-const TODAY = new Date();
-TODAY.setHours(0, 0, 0, 0);
-
-const MIN_DATE = new Date(2026, 1, 22); // Feb 22, 2026
-
-// Check for hidden debug URL parameter
-const DEBUG_MODE = new URLSearchParams(window.location.search).has("debug");
-
-export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
-  const [selectedDate, setSelectedDate] = useState<Date>(TODAY);
-  const [viewYear, setViewYear] = useState(selectedDate.getFullYear());
-  const [viewMonth, setViewMonth] = useState(selectedDate.getMonth());
+export const StartScreen: React.FC<StartScreenProps> = ({ imagesUrl, onStart }) => {
+  const [images, setImages] = useState<ImageRow[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [selected, setSelected] = useState(0);
   const [difficulty, setDifficulty] = useState<Difficulty>("normal");
+  const selectedRef = useRef<HTMLButtonElement>(null);
 
-  const totalDays = daysInMonth(viewYear, viewMonth);
-  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
+  useEffect(() => {
+    let cancelled = false;
+    fetch(imagesUrl)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<ImageRow[]>;
+      })
+      .then((rows) => {
+        if (!cancelled) setImages(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [imagesUrl, attempt]);
 
-  const canGoPrev = DEBUG_MODE || !(viewYear === MIN_DATE.getFullYear() && viewMonth === MIN_DATE.getMonth());
-  const canGoNext = DEBUG_MODE || !(viewYear === TODAY.getFullYear() && viewMonth === TODAY.getMonth());
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [selected, images]);
 
-  const goPrev = () => {
-    if (!canGoPrev) return;
-    if (viewMonth === 0) {
-      setViewYear(viewYear - 1);
-      setViewMonth(11);
-    } else {
-      setViewMonth(viewMonth - 1);
-    }
+  const retry = () => {
+    setLoadFailed(false);
+    setAttempt(attempt + 1);
   };
 
-  const goNext = () => {
-    if (!canGoNext) return;
-    if (viewMonth === 11) {
-      setViewYear(viewYear + 1);
-      setViewMonth(0);
-    } else {
-      setViewMonth(viewMonth + 1);
-    }
-  };
-
-  const isDateInRange = (day: number): boolean => {
-    if (DEBUG_MODE) return true;
-    const d = new Date(viewYear, viewMonth, day);
-    return d >= MIN_DATE && d <= TODAY;
-  };
-
-  const handleDayClick = (day: number) => {
-    if (!isDateInRange(day)) return;
-    setSelectedDate(new Date(viewYear, viewMonth, day));
-  };
+  const imageCount = images?.length ?? 0;
+  const canGoPrev = selected > 0;
+  const canGoNext = selected < imageCount - 1;
+  const canStart = imageCount > 0;
 
   const handleStart = () => {
-    onStart(formatDate(selectedDate), DIFFICULTY_PIECES[difficulty], difficulty);
+    if (!images || !canStart) return;
+    onStart(images[selected].id, DIFFICULTY_PIECES[difficulty], difficulty);
   };
-
-  // Build calendar grid cells
-  const cells: React.ReactNode[] = [];
-  for (let i = 0; i < firstDayOfWeek; i++) {
-    cells.push(<div key={`blank-${i}`} />);
-  }
-  for (let day = 1; day <= totalDays; day++) {
-    const inRange = isDateInRange(day);
-    const isSelected = isSameDay(
-      selectedDate,
-      new Date(viewYear, viewMonth, day)
-    );
-    const isToday = isSameDay(TODAY, new Date(viewYear, viewMonth, day));
-
-    cells.push(
-      <div
-        key={day}
-        onClick={() => handleDayClick(day)}
-        style={{
-          width: 36,
-          height: 36,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: "50%",
-          cursor: inRange ? "pointer" : "default",
-          opacity: inRange ? 1 : 0.25,
-          background: isSelected
-            ? "#3498db"
-            : isToday
-            ? "rgba(52, 152, 219, 0.2)"
-            : "transparent",
-          color: isSelected ? "#fff" : inRange ? "#e0e0e0" : "#666",
-          fontWeight: isSelected || isToday ? 700 : 400,
-          fontSize: 14,
-          transition: "background 0.15s, color 0.15s",
-        }}
-        onMouseEnter={(e) => {
-          if (inRange && !isSelected) {
-            (e.currentTarget as HTMLDivElement).style.background =
-              "rgba(52, 152, 219, 0.3)";
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (inRange && !isSelected) {
-            (e.currentTarget as HTMLDivElement).style.background = isToday
-              ? "rgba(52, 152, 219, 0.2)"
-              : "transparent";
-          }
-        }}
-      >
-        {day}
-      </div>
-    );
-  }
 
   return (
     <div
@@ -175,7 +105,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
           gap: 28,
           boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
           border: "1px solid rgba(255,255,255,0.1)",
-          minWidth: 340,
+          width: "min(560px, calc(100vw - 32px))",
+          boxSizing: "border-box",
         }}
       >
         {/* Title */}
@@ -191,7 +122,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
           Jigsaw Puzzle
         </h1>
 
-        {/* Difficulty toggle - moved above calendar */}
+        {/* Difficulty toggle */}
         <div style={{ width: "100%" }}>
           <label
             style={{
@@ -255,7 +186,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
           </div>
         </div>
 
-        {/* Calendar */}
+        {/* Image carousel */}
         <div style={{ width: "100%" }}>
           <label
             style={{
@@ -267,109 +198,107 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
               display: "block",
             }}
           >
-            Select a date
+            Choose an image
           </label>
 
           <div
             style={{
               background: "rgba(255,255,255,0.07)",
               borderRadius: 12,
-              padding: "12px 16px 16px",
+              padding: 12,
+              height: 180,
+              boxSizing: "border-box",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              color: "rgba(255,255,255,0.6)",
+              fontSize: 14,
             }}
           >
-            {/* Month / Year navigation */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 12,
-              }}
-            >
-              <button
-                onClick={goPrev}
-                disabled={!canGoPrev}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: canGoPrev ? "#fff" : "#555",
-                  fontSize: 18,
-                  cursor: canGoPrev ? "pointer" : "default",
-                  padding: "4px 8px",
-                  borderRadius: 6,
-                }}
-              >
-                &#8249;
-              </button>
-              <span
-                style={{
-                  color: "#fff",
-                  fontSize: 15,
-                  fontWeight: 600,
-                }}
-              >
-                {MONTH_NAMES[viewMonth]} {viewYear}
+            {loadFailed ? (
+              <span>
+                Couldn't load images.{" "}
+                <button
+                  onClick={retry}
+                  style={{ background: "none", border: "none", color: "#3498db", fontSize: 14, cursor: "pointer", padding: 0 }}
+                >
+                  Try again
+                </button>
               </span>
-              <button
-                onClick={goNext}
-                disabled={!canGoNext}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: canGoNext ? "#fff" : "#555",
-                  fontSize: 18,
-                  cursor: canGoNext ? "pointer" : "default",
-                  padding: "4px 8px",
-                  borderRadius: 6,
-                }}
-              >
-                &#8250;
-              </button>
-            </div>
-
-            {/* Day-of-week headers */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(7, 36px)",
-                justifyContent: "center",
-                gap: 2,
-                marginBottom: 4,
-              }}
-            >
-              {DAY_HEADERS.map((d) => (
+            ) : !images ? (
+              "Loading images…"
+            ) : images.length === 0 ? (
+              "No images available."
+            ) : (
+              <>
+                <button
+                  aria-label="Previous image"
+                  onClick={() => setSelected(selected - 1)}
+                  disabled={!canGoPrev}
+                  style={{ ...ARROW_STYLE, color: canGoPrev ? "#fff" : "#555", cursor: canGoPrev ? "pointer" : "default" }}
+                >
+                  &#8249;
+                </button>
                 <div
-                  key={d}
                   style={{
-                    textAlign: "center",
-                    color: "rgba(255,255,255,0.4)",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    paddingBottom: 4,
+                    flex: 1,
+                    minWidth: 0,
+                    display: "flex",
+                    gap: 8,
+                    overflowX: "auto",
+                    scrollSnapType: "x proximity",
+                    scrollbarWidth: "none",
                   }}
                 >
-                  {d}
+                  {images.map(({ id, url }, index) => (
+                    <button
+                      key={id}
+                      ref={index === selected ? selectedRef : undefined}
+                      aria-label={`Image ${index + 1} of ${images.length}`}
+                      aria-pressed={index === selected}
+                      onClick={() => setSelected(index)}
+                      style={{
+                        flex: "none",
+                        width: 200,
+                        height: 150,
+                        padding: 0,
+                        boxSizing: "border-box",
+                        border: `3px solid ${index === selected ? "#3498db" : "transparent"}`,
+                        borderRadius: 10,
+                        overflow: "hidden",
+                        background: "rgba(0,0,0,0.3)",
+                        cursor: "pointer",
+                        scrollSnapAlign: "center",
+                      }}
+                    >
+                      <img
+                        src={thumbnailUrl(url)}
+                        alt=""
+                        loading="lazy"
+                        draggable={false}
+                        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                      />
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
-
-            {/* Day grid */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(7, 36px)",
-                justifyContent: "center",
-                gap: 2,
-              }}
-            >
-              {cells}
-            </div>
+                <button
+                  aria-label="Next image"
+                  onClick={() => setSelected(selected + 1)}
+                  disabled={!canGoNext}
+                  style={{ ...ARROW_STYLE, color: canGoNext ? "#fff" : "#555", cursor: canGoNext ? "pointer" : "default" }}
+                >
+                  &#8250;
+                </button>
+              </>
+            )}
           </div>
         </div>
 
         {/* Start button */}
         <button
           onClick={handleStart}
+          disabled={!canStart}
           style={{
             width: "100%",
             padding: "14px 0",
@@ -379,7 +308,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => {
             color: "#fff",
             fontSize: 18,
             fontWeight: 700,
-            cursor: "pointer",
+            cursor: canStart ? "pointer" : "default",
+            opacity: canStart ? 1 : 0.5,
             letterSpacing: 0.5,
             boxShadow: "0 4px 16px rgba(52, 152, 219, 0.4)",
             transition: "transform 0.1s, box-shadow 0.1s",

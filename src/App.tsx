@@ -10,8 +10,9 @@ function App() {
   if (!game) {
     return (
       <StartScreen
-        onStart={(date, pieceCount, difficulty) => {
-          setGame({ imageUrl: `${IMAGE_BASE}/${date}`, pieceCount, difficulty });
+        imagesUrl={`${IMAGE_BASE}/all`}
+        onStart={(imageId, pieceCount, difficulty) => {
+          setGame({ imageUrl: `${IMAGE_BASE}/painting/${imageId}`, pieceCount, difficulty });
         }}
       />
     );

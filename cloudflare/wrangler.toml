@@ -1,0 +1,8 @@
+name = "puzzle"
+main = "worker.js"
+compatibility_date = "2026-02-22"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "puzzle-db"
+database_id = "0fca1d1d-627b-495b-898a-24811e46cec8"

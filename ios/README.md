@@ -25,9 +25,9 @@ xcodebuild build -project ios/JigsawPuzzle.xcodeproj -scheme JigsawPuzzle -desti
 ## Features (same as the web version)
 
 - Start screen with difficulty (Easy 75, Normal 150, Hard 250 pieces) and a
-  calendar to pick the daily painting (from Feb 22, 2026 to today).
-- Painting loaded from the same image service as the web app
-  (`https://puzzle.white-hat-de0d.workers.dev/<yyyy-MM-dd>`).
+  carousel to pick the painting.
+- Paintings listed by the same image service as the web app
+  (`https://puzzle.white-hat-de0d.workers.dev/all`).
 - Classic tab/blank jigsaw pieces scattered and randomly rotated in 15° steps.
 - Pieces snap together (within 20 pt and 15°) into groups, with chain reactions.
 - Timer with pause/resume. The timer also pauses when the app goes to the background.
@@ -61,7 +61,7 @@ JigsawPuzzle/
   Rendering/
     SpriteRenderer.swift     Pre-renders each piece/group into a bitmap
   Views/
-    StartScreenView.swift    Difficulty + date picker
+    StartScreenView.swift    Difficulty + image carousel
     PuzzleBoardView.swift    Board, gestures and HUD overlays
     PieceSpriteView.swift    Piece drawing, selection outline and rotation handle
     Theme.swift              Colors and button styles
