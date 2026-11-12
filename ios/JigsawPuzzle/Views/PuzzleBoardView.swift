@@ -4,9 +4,15 @@ struct PuzzleBoardView: View {
     let onClose: () -> Void
 
     @State private var game: PuzzleGame
-    @State private var confirmQuit = false
     @Environment(\.displayScale) private var displayScale
     @Environment(\.scenePhase) private var scenePhase
+    // Gesture state resets when a gesture ends *or* is cancelled (app backgrounded,
+    // system swipe, finger lifted mid-pinch), while onEnded only fires on a normal
+    // end. Finishing gestures from these resets keeps the game from waiting on a
+    // gesture that never ends, which left the board ignoring every drag.
+    @GestureState private var isDragging = false
+    @GestureState private var isMagnifying = false
+    @GestureState private var isTwisting = false
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -26,9 +32,24 @@ struct PuzzleBoardView: View {
         .persistentSystemOverlays(.hidden)
         .onReceive(timer) { _ in game.tick() }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { game.pauseIfPlaying() }
+            if phase != .active {
+                game.pauseIfPlaying()
+                game.saveProgress()
+            }
         }
-        .onDisappear { game.cancel() }
+        .onChange(of: isDragging) { _, active in
+            if !active { game.dragEnded() }
+        }
+        .onChange(of: isMagnifying) { _, active in
+            if !active { game.magnifyEnded() }
+        }
+        .onChange(of: isTwisting) { _, active in
+            if !active { game.twistEnded() }
+        }
+        .onDisappear {
+            game.saveProgress()
+            game.cancel()
+        }
     }
 
     // MARK: - Board
@@ -59,27 +80,21 @@ struct PuzzleBoardView: View {
 
     private var boardGesture: some Gesture {
         let drag = DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .updating($isDragging) { _, active, _ in active = true }
             .onChanged { value in
                 game.dragChanged(start: value.startLocation, location: value.location)
             }
-            .onEnded { _ in
-                game.dragEnded()
-            }
 
         let magnify = MagnifyGesture()
+            .updating($isMagnifying) { _, active, _ in active = true }
             .onChanged { value in
                 game.magnifyChanged(magnification: value.magnification, anchor: value.startLocation)
             }
-            .onEnded { _ in
-                game.magnifyEnded()
-            }
 
         let twist = RotateGesture()
+            .updating($isTwisting) { _, active, _ in active = true }
             .onChanged { value in
                 game.twistChanged(value.rotation)
-            }
-            .onEnded { _ in
-                game.twistEnded()
             }
 
         return drag.simultaneously(with: magnify.simultaneously(with: twist))
@@ -187,18 +202,12 @@ struct PuzzleBoardView: View {
             .buttonStyle(HUDButtonStyle())
             .accessibilityLabel(game.isPaused ? "Resume" : "Pause")
             Button {
-                confirmQuit = true
+                onClose()
             } label: {
                 Image(systemName: "xmark")
             }
             .buttonStyle(HUDButtonStyle())
             .accessibilityLabel("Back to menu")
-            .confirmationDialog("Leave this puzzle?", isPresented: $confirmQuit, titleVisibility: .visible) {
-                Button("Back to Menu", role: .destructive) { onClose() }
-                Button("Keep Playing", role: .cancel) {}
-            } message: {
-                Text("Your progress on this puzzle will be lost.")
-            }
         }
     }
 
@@ -256,8 +265,13 @@ struct PuzzleBoardView: View {
                 .font(.system(size: 20))
                 .opacity(0.8)
                 .padding(.bottom, 16)
-            Button("Back to Menu") { onClose() }
-                .buttonStyle(PrimaryButtonStyle())
+            HStack(spacing: 12) {
+                Button("Reset") { game.reset() }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .accessibilityHint("Shuffles the pieces to play this puzzle again")
+                Button("Back to Menu") { onClose() }
+                    .buttonStyle(PrimaryButtonStyle())
+            }
         }
         .foregroundStyle(.white)
         .multilineTextAlignment(.center)

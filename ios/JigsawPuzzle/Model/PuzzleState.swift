@@ -54,6 +54,41 @@ struct PuzzleState: @unchecked Sendable {
         nextZ = total
     }
 
+    /// Rebuild a saved board. Returns nil if the save doesn't match `layout`.
+    init?(layout: PuzzleLayout, restoring saved: SavedPuzzle) {
+        let pieceIDs = saved.entities.flatMap(\.pieceIDs).sorted()
+        guard saved.edges == layout.edges, saved.scale > 0,
+              pieceIDs == Array(layout.pieces.indices) else { return nil }
+
+        self.layout = layout
+        scale = saved.scale
+        entities = saved.entities.map { e in
+            PuzzleEntity(
+                id: e.pieceIDs.count == 1 ? "piece-\(e.pieceIDs[0])" : "group-\(UUID().uuidString)",
+                pieceIDs: e.pieceIDs,
+                centroid: Self.centroid(of: e.pieceIDs, in: layout),
+                position: e.position,
+                rotation: normalizedDegrees(e.rotation),
+                zIndex: e.zIndex
+            )
+        }
+        isCompleted = entities.count == 1
+        nextZ = (entities.map(\.zIndex).max() ?? 0) + 1
+    }
+
+    var savedEntities: [SavedPuzzle.Entity] {
+        entities.map {
+            SavedPuzzle.Entity(pieceIDs: $0.pieceIDs, position: $0.position,
+                               rotation: $0.rotation, zIndex: $0.zIndex)
+        }
+    }
+
+    private static func centroid(of pieceIDs: [Int], in layout: PuzzleLayout) -> CGPoint {
+        var sum = CGPoint.zero
+        for pid in pieceIDs { sum = sum + layout.pieces[pid].centroid }
+        return sum / CGFloat(pieceIDs.count)
+    }
+
     // MARK: - Queries
 
     func entity(_ id: String) -> PuzzleEntity? {
@@ -216,9 +251,7 @@ struct PuzzleState: @unchecked Sendable {
         let neighbor = entities[ni]
         let pieceIDs = active.pieceIDs + neighbor.pieceIDs
 
-        var sum = CGPoint.zero
-        for pid in pieceIDs { sum = sum + layout.pieces[pid].centroid }
-        let centroid = sum / CGFloat(pieceIDs.count)
+        let centroid = Self.centroid(of: pieceIDs, in: layout)
 
         let offset = ((centroid - active.centroid) * scale).rotated(byDegrees: active.rotation)
         let group = PuzzleEntity(

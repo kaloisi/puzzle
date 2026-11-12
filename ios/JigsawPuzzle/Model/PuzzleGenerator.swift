@@ -16,19 +16,41 @@ struct PieceDefinition: Identifiable, @unchecked Sendable {
     let neighbors: [Int]
 }
 
+/// Which way each shared edge's tab points. Kept so a saved board can be
+/// rebuilt with exactly the same piece shapes.
+struct PuzzleEdges: Codable, Equatable, Sendable {
+    /// horizontal[r][c]: true = tab protrudes downward on the edge between row r and r+1
+    var horizontal: [[Bool]]
+    /// vertical[r][c]: true = tab protrudes rightward on the edge between col c and c+1
+    var vertical: [[Bool]]
+
+    static func random(rows: Int, cols: Int) -> PuzzleEdges {
+        PuzzleEdges(
+            horizontal: (0..<max(0, rows - 1)).map { _ in (0..<cols).map { _ in Bool.random() } },
+            vertical: (0..<rows).map { _ in (0..<max(0, cols - 1)).map { _ in Bool.random() } }
+        )
+    }
+
+    func fits(rows: Int, cols: Int) -> Bool {
+        horizontal.count == max(0, rows - 1) && horizontal.allSatisfy { $0.count == cols }
+            && vertical.count == rows && vertical.allSatisfy { $0.count == max(0, cols - 1) }
+    }
+}
+
 struct PuzzleLayout: @unchecked Sendable {
     let imageSize: CGSize
     let rows: Int
     let cols: Int
+    let edges: PuzzleEdges
     /// Indexed by piece id.
     let pieces: [PieceDefinition]
 }
 
 /// Generates a grid-based jigsaw puzzle with standard tab/blank edges.
-/// Each shared edge is randomly assigned a tab or blank, and adjacent pieces
-/// always have complementary shapes.
+/// Each shared edge is randomly assigned a tab or blank (unless `edges` from a
+/// saved board fit the grid), and adjacent pieces always have complementary shapes.
 enum PuzzleGenerator {
-    static func makeLayout(imageSize: CGSize, pieceCount: Int) -> PuzzleLayout {
+    static func makeLayout(imageSize: CGSize, pieceCount: Int, edges: PuzzleEdges? = nil) -> PuzzleLayout {
         let imgW = Double(imageSize.width)
         let imgH = Double(imageSize.height)
 
@@ -43,12 +65,10 @@ enum PuzzleGenerator {
         // 2. Edge directions.
         // hEdge[r][c]: +1 = tab protrudes downward on the edge between row r and r+1
         // vEdge[r][c]: +1 = tab protrudes rightward on the edge between col c and c+1
-        let hEdge: [[CGFloat]] = (0..<max(0, rows - 1)).map { _ in
-            (0..<cols).map { _ in Bool.random() ? 1 : -1 }
-        }
-        let vEdge: [[CGFloat]] = (0..<rows).map { _ in
-            (0..<max(0, cols - 1)).map { _ in Bool.random() ? 1 : -1 }
-        }
+        let edges = edges.flatMap { $0.fits(rows: rows, cols: cols) ? $0 : nil }
+            ?? PuzzleEdges.random(rows: rows, cols: cols)
+        let hEdge: [[CGFloat]] = edges.horizontal.map { row in row.map { $0 ? 1 : -1 } }
+        let vEdge: [[CGFloat]] = edges.vertical.map { row in row.map { $0 ? 1 : -1 } }
 
         // 3. Pieces
         var pieces: [PieceDefinition] = []
@@ -99,7 +119,7 @@ enum PuzzleGenerator {
             }
         }
 
-        return PuzzleLayout(imageSize: imageSize, rows: rows, cols: cols, pieces: pieces)
+        return PuzzleLayout(imageSize: imageSize, rows: rows, cols: cols, edges: edges, pieces: pieces)
     }
 
     /// Horizontal edge from `xa` to `xb` at fixed `y`.

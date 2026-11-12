@@ -7,6 +7,7 @@ struct StartScreenView: View {
     @State private var images: [URL]?
     @State private var selectedImage: URL?
     @State private var loadFailed = false
+    @State private var progress: [String: PuzzleProgress] = [:]
 
     var body: some View {
         ZStack {
@@ -52,7 +53,8 @@ struct StartScreenView: View {
                     onStart(GameConfig(imageURL: selectedImage, difficulty: difficulty))
                 }
             } label: {
-                Text("Start").frame(maxWidth: .infinity)
+                Text(selectedImage.flatMap(progress(for:)) == .inProgress ? "Resume" : "Start")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(PrimaryButtonStyle())
             .disabled(selectedImage == nil)
@@ -68,7 +70,10 @@ struct StartScreenView: View {
         )
         .shadow(color: .black.opacity(0.4), radius: 30, y: 20)
         .padding(24)
-        .task { await loadImages() }
+        .task {
+            progress = PuzzleSaveStore.allProgress()
+            await loadImages()
+        }
     }
 
     @ViewBuilder
@@ -87,8 +92,9 @@ struct StartScreenView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 8) {
-                        ForEach(images, id: \.self) { url in
-                            thumbnail(url, index: images.firstIndex(of: url) ?? 0, total: images.count)
+                        let ordered = sortedByProgress(images)
+                        ForEach(Array(ordered.enumerated()), id: \.element) { index, url in
+                            thumbnail(url, index: index, total: ordered.count)
                                 .id(url)
                         }
                     }
@@ -96,6 +102,9 @@ struct StartScreenView: View {
                 }
                 .onChange(of: selectedImage) { _, newValue in
                     withAnimation { proxy.scrollTo(newValue, anchor: .center) }
+                }
+                .onChange(of: difficulty) {
+                    withAnimation { proxy.scrollTo(selectedImage, anchor: .center) }
                 }
             }
         } else {
@@ -115,6 +124,11 @@ struct StartScreenView: View {
             }
             .frame(width: 200, height: 150)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(alignment: .bottomLeading) {
+                if let status = progress(for: url) {
+                    progressBadge(status).padding(8)
+                }
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(isSelected ? Color.puzzleAccent : Color.clear, lineWidth: 3)
@@ -123,7 +137,41 @@ struct StartScreenView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Image \(index + 1) of \(total)")
+        .accessibilityValue(progress(for: url).map(progressTitle) ?? "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// Progress of `url` at the selected difficulty.
+    private func progress(for url: URL) -> PuzzleProgress? {
+        progress[PuzzleSaveStore.key(imageURL: url, difficulty: difficulty)]
+    }
+
+    /// In-progress paintings first, then never played, then solved; otherwise in list order.
+    private func sortedByProgress(_ images: [URL]) -> [URL] {
+        func rank(_ url: URL) -> Int {
+            switch progress(for: url) {
+            case .inProgress: return 0
+            case nil: return 1
+            case .solved: return 2
+            }
+        }
+        return images.enumerated()
+            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
+            .map(\.element)
+    }
+
+    private func progressTitle(_ status: PuzzleProgress) -> String {
+        status == .solved ? "Solved" : "In progress"
+    }
+
+    private func progressBadge(_ status: PuzzleProgress) -> some View {
+        Label(progressTitle(status),
+              systemImage: status == .solved ? "checkmark.circle.fill" : "hourglass")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(status == .solved ? Color.green : Color.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.black.opacity(0.7), in: Capsule())
     }
 
     private struct ImageRow: Decodable {
@@ -136,7 +184,7 @@ struct StartScreenView: View {
             let (data, _) = try await URLSession.shared.data(from: GameConfig.imagesListURL)
             let rows = try JSONDecoder().decode([ImageRow].self, from: data)
             images = rows.map(\.url)
-            selectedImage = rows.first?.url
+            selectedImage = sortedByProgress(images ?? []).first
         } catch {
             loadFailed = true
         }

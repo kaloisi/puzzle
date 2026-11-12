@@ -51,6 +51,8 @@ final class PuzzleGame {
     @ObservationIgnored private var dragMoved = false
     @ObservationIgnored private var pinchStart: (zoom: CGFloat, pan: CGPoint)?
     @ObservationIgnored private var twistStart: (id: String?, rotation: Double)?
+    /// Whether this board is worth saving: it was resumed, or the player has moved a piece.
+    @ObservationIgnored private var hasProgress = false
 
     init(config: GameConfig) {
         self.config = config
@@ -78,9 +80,7 @@ final class PuzzleGame {
         phase = .loading
 
         let url = config.imageURL
-        let pieceCount = config.pieceCount
-        // Render a bit above screen resolution so pieces stay crisp when zoomed in.
-        let pixelScale = min(3, max(1, displayScale) * 1.5)
+        let saved = PuzzleSaveStore.load(for: config)
 
         loadTask = Task { [weak self] in
             do {
@@ -91,22 +91,57 @@ final class PuzzleGame {
                 guard let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 else {
                     throw URLError(.cannotDecodeContentData)
                 }
-
-                let prepared = await Task.detached(priority: .userInitiated) {
-                    Self.prepare(image: image, pieceCount: pieceCount,
-                                 boardSize: boardSize, pixelScale: pixelScale)
-                }.value
-
-                guard let self, !Task.isCancelled else { return }
-                self.originalImage = image
-                self.renderer = prepared.renderer
-                self.sprites = prepared.sprites
-                self.state = prepared.state
-                self.phase = .ready
+                await self?.showBoard(image: image, saved: saved)
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 self.phase = .failed("Failed to load the painting image. Please check your connection and try again.")
             }
+        }
+    }
+
+    /// Cut `image` into pieces, restoring `saved` when it matches, and show the board.
+    private func showBoard(image: UIImage, saved: SavedPuzzle?) async {
+        let pieceCount = config.pieceCount
+        let boardSize = boardSize
+        // Render a bit above screen resolution so pieces stay crisp when zoomed in.
+        let pixelScale = min(3, max(1, displayScale) * 1.5)
+
+        let prepared = await Task.detached(priority: .userInitiated) {
+            Self.prepare(image: image, pieceCount: pieceCount, boardSize: boardSize,
+                         pixelScale: pixelScale, saved: saved)
+        }.value
+
+        guard !Task.isCancelled else { return }
+        originalImage = image
+        renderer = prepared.renderer
+        sprites = prepared.sprites
+        state = prepared.state
+        hasProgress = prepared.isRestored
+        if prepared.isRestored, let saved {
+            elapsed = saved.elapsed
+            zoom = saved.zoom
+            pan = saved.pan
+        }
+        phase = .ready
+    }
+
+    /// Start the same painting over with a freshly shuffled board.
+    func reset() {
+        guard let image = originalImage else { return }
+        PuzzleSaveStore.delete(for: config)
+        loadTask?.cancel()
+        state = nil
+        sprites = [:]
+        renderer = nil
+        hasProgress = false
+        elapsed = 0
+        isPaused = false
+        showOriginal = false
+        multiSelectMode = false
+        resetZoom()
+        phase = .loading
+        loadTask = Task { [weak self] in
+            await self?.showBoard(image: image, saved: nil)
         }
     }
 
@@ -124,20 +159,23 @@ final class PuzzleGame {
         let state: PuzzleState
         let renderer: SpriteRenderer
         let sprites: [String: EntitySprite]
+        let isRestored: Bool
     }
 
     nonisolated private static func prepare(
-        image: UIImage, pieceCount: Int, boardSize: CGSize, pixelScale: CGFloat
+        image: UIImage, pieceCount: Int, boardSize: CGSize, pixelScale: CGFloat, saved: SavedPuzzle?
     ) -> Prepared {
-        let layout = PuzzleGenerator.makeLayout(imageSize: image.size, pieceCount: pieceCount)
-        let state = PuzzleState(layout: layout, boardSize: boardSize)
+        let layout = PuzzleGenerator.makeLayout(imageSize: image.size, pieceCount: pieceCount,
+                                                edges: saved?.edges)
+        let restored = saved.flatMap { PuzzleState(layout: layout, restoring: $0) }
+        let state = restored ?? PuzzleState(layout: layout, boardSize: boardSize)
         let renderer = SpriteRenderer(image: image, layout: layout,
                                       scale: state.scale, pixelScale: pixelScale)
         var sprites: [String: EntitySprite] = [:]
         for entity in state.entities {
             sprites[entity.id] = renderer.sprite(for: entity)
         }
-        return Prepared(state: state, renderer: renderer, sprites: sprites)
+        return Prepared(state: state, renderer: renderer, sprites: sprites, isRestored: restored != nil)
     }
 
     /// Render sprites for newly merged groups and drop sprites of entities that no longer exist.
@@ -151,6 +189,23 @@ final class PuzzleGame {
         if updated.count != sprites.count || updated.keys.contains(where: { sprites[$0] == nil }) {
             sprites = updated
         }
+    }
+
+    // MARK: - Saving
+
+    /// Save the board so it can be resumed later. Untouched new boards aren't saved.
+    func saveProgress() {
+        guard phase == .ready, hasProgress, let state else { return }
+        PuzzleSaveStore.save(
+            SavedPuzzle(edges: state.layout.edges, scale: state.scale, entities: state.savedEntities,
+                        elapsed: elapsed, zoom: zoom, pan: pan, isCompleted: state.isCompleted),
+            for: config
+        )
+    }
+
+    private func boardChanged() {
+        hasProgress = true
+        saveProgress()
     }
 
     // MARK: - Timer / pause
@@ -224,6 +279,7 @@ final class PuzzleGame {
         if snapToRightAngle { state?.snapRotationToRightAngle(id) }
         state?.trySnap(id)
         refreshSprites()
+        boardChanged()
     }
 
     // MARK: - One-finger drag (select / move / rotate handle / pan)
@@ -282,6 +338,7 @@ final class PuzzleGame {
                 state?.trySnap(id)
                 refreshSprites()
             }
+            if dragMoved { boardChanged() }
 
         case .rotate(let id, _, _):
             finishRotation(id, snapToRightAngle: true)
